@@ -9,6 +9,7 @@ import {
   openingStatus,
   parkingAccess,
   rotatePlaced,
+  setBarrierKind,
   step,
   storeDoor,
   type ParkingState,
@@ -195,6 +196,103 @@ describe("opening diagnostics", () => {
 });
 
 describe("construction and selection", () => {
+  test.each([
+    ["entry", "gate", 6],
+    ["gate", "entry", 8],
+  ] as const)(
+    "a selected %s can become a %s for free and the change can be undone",
+    (from, to, x) => {
+      const state = builtLot(0, 1);
+      const point = { x, y: 9 };
+      const result = setBarrierKind(state, point, to);
+      expect(result.error).toBeUndefined();
+      expect(result.state.grid[9]![x]).toEqual({
+        ...state.grid[9]![x],
+        kind: to,
+      });
+      expect(state.grid[9]![x]!.kind).toBe(from);
+      expect(result.state.balance).toBe(state.balance);
+      expect(result.state.expenses).toBe(state.expenses);
+      expect(result.state.cars).toBe(state.cars);
+      expect(result.undo).toEqual({
+        grid: state.grid,
+        delta: 0,
+        expenseDelta: 0,
+      });
+      expect(
+        parseParkingSave(JSON.stringify(result.state))?.grid[9]![x]!.kind,
+      ).toBe(to);
+      const restored = { ...result.state, grid: result.undo!.grid };
+      expect(restored).toEqual(state);
+    },
+  );
+  test("converting one of two exits to an entrance immediately permits opening and billing", () => {
+    let state = builtLot(0, 6);
+    state = place(state, "erase", 6, 9);
+    state = place(state, "gate", 6, 9);
+    expect(
+      openingStatus(infrastructure(state.grid)).missing.map(
+        (check) => check.id,
+      ),
+    ).toEqual(["entry"]);
+    const converted = setBarrierKind(state, { x: 6, y: 9 }, "entry");
+    expect(openingStatus(infrastructure(converted.state.grid)).ready).toBe(
+      true,
+    );
+    expect(infrastructure(converted.state.grid).gates).toHaveLength(1);
+    const served = simulate(150, openParking(converted.state));
+    expect(served.served).toBeGreaterThan(0);
+    expect(served.income).toBe(served.served * state.price);
+  });
+  test("clients already routed through a barrier must pass before its function changes", () => {
+    const state: ParkingState = {
+      ...builtLot(0, 1),
+      opened: true,
+      nextCarId: 1,
+      cars: [
+        {
+          id: 0,
+          color: "#dc9a65",
+          spot: { x: 10, y: 10 },
+          path: Array.from({ length: 6 }, (_, i) => ({ x: i + 4, y: 9 })),
+          progress: 0,
+          phase: "leaving",
+          wait: 0,
+          shoppingTime: 20,
+          paid: false,
+          fee: 3,
+        },
+      ],
+    };
+    const blocked = setBarrierKind(state, { x: 8, y: 9 }, "entry");
+    expect(blocked.error).toContain("client");
+    expect(blocked.state).toBe(state);
+    expect(blocked.undo).toBeUndefined();
+    const passed: ParkingState = {
+      ...state,
+      cars: [{ ...state.cars[0]!, progress: 5, paid: true }],
+    };
+    expect(
+      setBarrierKind(passed, { x: 8, y: 9 }, "entry").state.grid[9]![8]!.kind,
+    ).toBe("entry");
+  });
+  test("conversion rejects non-barriers, protected barriers and finished contracts, with no history for an unchanged role", () => {
+    const state = builtLot(0, 1);
+    expect(
+      setBarrierKind(state, { x: 10, y: 10 }, "entry").error,
+    ).toBeDefined();
+    const grid = state.grid.map((row) => row.slice());
+    grid[9]![8] = { ...grid[9]![8]!, fixed: true };
+    expect(
+      setBarrierKind({ ...state, grid }, { x: 8, y: 9 }, "entry").error,
+    ).toBeDefined();
+    expect(
+      setBarrierKind({ ...state, status: "lost" }, { x: 8, y: 9 }, "entry")
+        .error,
+    ).toBeDefined();
+    expect(setBarrierKind(state, { x: 8, y: 9 }, "gate")).toEqual({ state });
+    expect(setBarrierKind(state, { x: -1, y: 9 }, "gate")).toEqual({ state });
+  });
   test("tracing across existing roads preserves equipment and does not charge again", () => {
     const state = builtLot(0, 1);
     for (const point of [

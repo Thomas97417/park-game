@@ -199,6 +199,8 @@ export function ParkingGame() {
     ? state.grid[selection.y]?.[selection.x]
     : undefined;
   const selectedTool = TOOLS.find((item) => item.id === tool);
+  const barrierSelected =
+    selectedTile?.kind === "entry" || selectedTile?.kind === "gate";
   const rotatable = selection
     ? canRotate(selectedTile)
     : ["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(tool);
@@ -595,9 +597,70 @@ export function ParkingGame() {
             </span>
           </nav>
         </aside>
+        {selection && barrierSelected && (
+          <section
+            aria-label="Barrière sélectionnée"
+            className="absolute bottom-4 left-4 w-64 max-w-[calc(100%_-_96px)] rounded-xl border border-[#d7e1cb] bg-[#fcfdf6]/95 p-3 shadow-[0_3px_14px_#3d543a0c] sm:left-5"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-[#56704b]">
+                Fonction de la barrière
+              </h2>
+              <button
+                type="button"
+                aria-label="Désélectionner la barrière"
+                title="Désélectionner"
+                onClick={() => selectTool("select")}
+                className="rounded p-1 text-[#7d8e6e] hover:bg-[#edf2e4]"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div
+              role="group"
+              aria-label="Fonction de la barrière"
+              className="flex gap-1 rounded-lg bg-[#edf1e6] p-1"
+            >
+              {(["entry", "gate"] as const).map((kind) => {
+                const active = selectedTile?.kind === kind;
+                const Icon = kind === "entry" ? EntranceIcon : BarrierIcon;
+                const label = kind === "entry" ? "Entrée" : "Sortie";
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-label={`Transformer en ${label.toLowerCase()}`}
+                    aria-pressed={active}
+                    title={
+                      active
+                        ? `${label} actuelle`
+                        : `Transformer en ${label.toLowerCase()} · gratuit`
+                    }
+                    disabled={
+                      !!selectedTile?.fixed || state.status !== "playing"
+                    }
+                    onClick={() => {
+                      if (game.changeBarrier(selection, kind)) tone(480);
+                    }}
+                    className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${active ? (kind === "entry" ? "bg-[#dcead8] text-[#3f6747] shadow-[inset_0_0_0_1px_#91b18b]" : "bg-[#f4e5c9] text-[#8d663b] shadow-[inset_0_0_0_1px_#c8a571]") : "text-[#7b8c6c] hover:bg-[#f7f9f1]"}`}
+                  >
+                    <Icon size={23} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-[#7b8d6c]">
+              {selectedTile?.kind === "entry"
+                ? "Accès des clients au parking"
+                : "Paiement du stationnement à la sortie"}
+            </p>
+          </section>
+        )}
         {game.ready &&
           !state.opened &&
           !opening.ready &&
+          !barrierSelected &&
           info.spots.length > 0 && (
             <button
               type="button"

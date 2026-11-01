@@ -91,7 +91,7 @@ export function BarrierIcon(props: LucideProps) {
         width="5"
         height="12"
         rx="1.5"
-        fill={sage}
+        fill={gold}
         stroke={ink}
         strokeWidth="1.3"
       />
@@ -108,6 +108,26 @@ export function BarrierIcon(props: LucideProps) {
       <path d="m9 6 3 5m4-5 3 5" stroke={clay} strokeWidth="2.5" />
       <circle cx="5.5" cy="15" r="1" fill={gold} />
       <path d="M2 22h7" stroke={ink} strokeWidth="1.3" />
+      <circle
+        cx="17.5"
+        cy="17.5"
+        r="5.5"
+        fill={gold}
+        stroke={ink}
+        strokeWidth="1.2"
+      />
+      <text
+        x="17.5"
+        y="20.3"
+        textAnchor="middle"
+        fontFamily="sans-serif"
+        fontSize="8"
+        fontWeight="700"
+        fill={ink}
+        stroke="none"
+      >
+        €
+      </text>
     </Frame>
   );
 }
@@ -174,7 +194,7 @@ export function EntranceIcon(props: LucideProps) {
       <path d="M14 3h6v18h-6" fill={pale} stroke={ink} strokeWidth="1.5" />
       <path
         d="M3 9h8V5l7 7-7 7v-4H3Z"
-        fill={sage}
+        fill="#8eb28a"
         stroke={ink}
         strokeWidth="1.4"
       />

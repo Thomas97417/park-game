@@ -514,6 +514,38 @@ export function rotatePlaced(state: ParkingState, point: Point): BuildResult {
   };
 }
 
+export function setBarrierKind(
+  state: ParkingState,
+  point: Point,
+  kind: "entry" | "gate",
+): BuildResult {
+  if (!inBounds(point)) return { state };
+  if (state.status !== "playing")
+    return { state, error: "Ce contrat est terminé. Relancez une partie." };
+  const tile = state.grid[point.y]![point.x]!;
+  if (tile.fixed || (tile.kind !== "entry" && tile.kind !== "gate"))
+    return { state, error: "Sélectionnez une barrière modifiable." };
+  if (tile.kind === kind) return { state };
+  // A departing client may already be routed to this toll to pay.
+  if (
+    state.cars.some(
+      (car) =>
+        car.phase !== "shopping" &&
+        car.path.slice(Math.floor(car.progress)).some((p) => same(p, point)),
+    )
+  )
+    return {
+      state,
+      error: "Un client emprunte encore cette barrière. Attendez son passage.",
+    };
+  const grid = state.grid.map((row) => row.slice());
+  grid[point.y]![point.x] = { ...tile, kind };
+  return {
+    state: { ...state, grid },
+    undo: { grid: state.grid, delta: 0, expenseDelta: 0 },
+  };
+}
+
 export function positionOnPath(car: Car): {
   x: number;
   y: number;

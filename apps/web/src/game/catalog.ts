@@ -49,7 +49,7 @@ export const TOOLS: {
   },
   {
     id: "gate",
-    label: "Barrière",
+    label: "Sortie",
     price: 240,
     key: "4",
     description:
@@ -177,7 +177,7 @@ export const TILE_LABELS: Record<TileKind, string> = {
   parking: "Place",
   crossing: "Passage piéton",
   entry: "Entrée",
-  gate: "Barrière",
+  gate: "Sortie",
   roundabout: "Rond-point",
   tree: "Arbre",
   lamp: "Lampadaire",

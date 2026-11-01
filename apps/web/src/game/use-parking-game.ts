@@ -8,6 +8,7 @@ import {
   createGame,
   step,
   rotatePlaced,
+  setBarrierKind,
   openParking,
   infrastructure,
   openingStatus,
@@ -175,6 +176,11 @@ export function useParkingGame() {
     (point: Point) => apply(rotatePlaced(stateRef.current, point)),
     [apply],
   );
+  const changeBarrier = useCallback(
+    (point: Point, kind: "entry" | "gate") =>
+      apply(setBarrierKind(stateRef.current, point, kind)),
+    [apply],
+  );
   const open = useCallback(() => {
     const current = stateRef.current;
     const next = openParking(current);
@@ -252,6 +258,7 @@ export function useParkingGame() {
     isAuthenticated,
     place,
     rotate,
+    changeBarrier,
     open,
     undo,
     save,

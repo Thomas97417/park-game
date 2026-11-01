@@ -178,39 +178,105 @@ function Barrier({
   open?: boolean;
 }) {
   return (
-    <g transform={`rotate(${rotation * 90})`}>
-      <rect x="-18" y="-10" width="7" height="17" rx="2" fill="#526459" />
-      <rect
-        x="-17"
-        y="-9"
-        width="5"
-        height="4"
-        rx="1"
-        fill={entry ? "#abc88c" : "#e9bc76"}
-      />
-      <circle cx="-14.5" cy="3" r="1.5" fill={open ? "#b9d4a1" : "#e1a780"} />
-      <g
-        transform={open ? "rotate(-65 -12 0)" : undefined}
-        style={{ transition: "transform 300ms ease" }}
-      >
+    <g>
+      <g transform={`rotate(${rotation * 90})`}>
         <rect
-          x="-12"
-          y="-2"
-          width="27"
+          x="-15"
+          y="-15"
+          width="30"
+          height="30"
+          rx="4"
+          fill={entry ? "#dce9d9" : "#f3e5cd"}
+        />
+        <rect
+          x="-18"
+          y="-10"
+          width="7"
+          height="17"
+          rx="2"
+          fill={entry ? "#466d55" : "#9b6a43"}
+        />
+        <rect
+          x="-17"
+          y="-9"
+          width="5"
           height="4"
           rx="1"
-          fill="#fffdf3"
-          stroke="#d8d8c9"
-          strokeWidth="0.5"
+          fill={entry ? "#abc88c" : "#e9bc76"}
         />
-        <path d="M-7-2l3 4M1-2l3 4M9-2l3 4" stroke="#cd8b78" strokeWidth="3" />
+        <circle cx="-14.5" cy="3" r="1.5" fill={open ? "#b9d4a1" : "#e1a780"} />
+        <g
+          transform={open ? "rotate(-65 -12 0)" : undefined}
+          style={{ transition: "transform 300ms ease" }}
+        >
+          <rect
+            x="-12"
+            y="-2"
+            width="27"
+            height="4"
+            rx="1"
+            fill="#fffdf3"
+            stroke="#d8d8c9"
+            strokeWidth="0.5"
+          />
+          <path
+            d="M-7-2l3 4M1-2l3 4M9-2l3 4"
+            stroke={entry ? "#749977" : "#c69455"}
+            strokeWidth="3"
+          />
+        </g>
+        <path
+          d="M0 7v7m-3-3 3 3 3-3"
+          stroke={entry ? "#6a8c66" : "#b58a4f"}
+          fill="none"
+          strokeWidth="1.5"
+        />
       </g>
-      <path
-        d="M0 7v7m-3-3 3 3 3-3"
-        stroke="#a2aa97"
-        fill="none"
-        strokeWidth="1.5"
-      />
+      {/* Keep the role badge upright when the barrier is rotated. */}
+      {entry ? (
+        <g>
+          <circle
+            cx="11"
+            cy="-12"
+            r="8"
+            fill="#477451"
+            stroke="#fffdf1"
+            strokeWidth="1.3"
+          />
+          <path
+            d="M11-17v8m-3-3 3 3 3-3M7-6h8"
+            fill="none"
+            stroke="#fffdf1"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </g>
+      ) : (
+        <g>
+          <rect
+            x="3"
+            y="-20"
+            width="16"
+            height="16"
+            rx="4"
+            fill="#b38446"
+            stroke="#fffdf1"
+            strokeWidth="1.3"
+          />
+          <text
+            x="11"
+            y="-7.5"
+            textAnchor="middle"
+            fontFamily="sans-serif"
+            fontSize="12"
+            fontWeight="700"
+            fill="#fffdf1"
+          >
+            €
+          </text>
+        </g>
+      )}
     </g>
   );
 }
