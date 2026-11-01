@@ -6,11 +6,11 @@ Un city builder de parking en français, réalisé avec React 19, TanStack Start
 
 La route `/` ouvre directement le jeu, sans compte obligatoire. Chaque nouveau contrat commence sur un terrain vide de 46 × 32 cases. Seuls le commerce, son accès piéton et la voirie publique sont conservés. Construisez vos accès et vos places, puis cliquez sur **Ouvrir**. Aucun entretien ni pénalité ne s’applique avant l’ouverture.
 
-- **Construire** : une seule barre inférieure regroupe les outils, les indicateurs et la simulation. Routes par glisser, places orientables, passages piétons, barrières de paiement, entrées, ronds-points, arbres, lampadaires, bancs et massifs. Une route remplace automatiquement les décors qui occupent son tracé.
+- **Construire** : une seule ligne inférieure regroupe les outils, les indicateurs et la simulation, avec des icônes SVG dédiées. Les objectifs, les contrats, les finances, l’aide et les paramètres sont accessibles sur le bord droit. La barre défile horizontalement sur les petits écrans. Routes par glisser, places orientables, passages piétons, barrières de paiement, entrées, ronds-points, arbres, lampadaires, bancs et massifs. Une route remplace automatiquement les décors qui occupent son tracé.
 - **Circuler** : chaque voiture suit un itinéraire réel sur le réseau, réserve une place accessible, attend la fin des courses, puis paie une seule fois à une barrière de sortie. Des piétons rejoignent le magasin.
 - **Gérer** : ajustez le tarif, surveillez les recettes, l’entretien et la satisfaction. Un découvert ou une satisfaction inférieure à 35 % pendant 45 secondes de simulation entraîne la perte du contrat.
 - **Progresser** : remplissez les quatre objectifs et validez le contrat pour toucher la prime et débloquer un commerce plus grand : épicerie, supermarché, centre commercial.
-- **Sauvegarder** : sauvegarde locale toutes les 8 secondes et à la sortie de l’onglet ; synchronisation Convex pour les comptes connectés. Export JSON depuis les préférences. La simulation se suspend quand l’onglet est masqué et pendant les dialogues.
+- **Sauvegarder** : sauvegarde locale toutes les 8 secondes et à la sortie de l’onglet ; synchronisation Convex pour les comptes connectés. Export JSON depuis les paramètres. La simulation se suspend quand l’onglet est masqué et pendant les dialogues.
 
 Cliquez sur un élément posé (ou faites un clic droit pendant la construction) pour le sélectionner, puis utilisez les boutons **Pivoter** et **Supprimer** de la barre inférieure. Supprimer une entrée, une barrière ou un passage piéton conserve la route. Les éléments utilisés par un client sont protégés.
 

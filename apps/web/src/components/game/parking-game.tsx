@@ -3,28 +3,18 @@ import {
   useEffect,
   useRef,
   useState,
-  type ComponentType,
   type ReactNode,
 } from "react";
 import {
-  ArrowDownLeft,
   ArrowRight,
-  Armchair,
   BadgeCheck,
-  BriefcaseBusiness,
-  CarFront,
   Check,
   CheckCheck,
   ChevronDown,
-  CircleHelp,
-  CircleParking,
   Download,
   Eraser,
   Expand,
   Flag,
-  Flower2,
-  Grid2X2,
-  LampDesk,
   LockKeyhole,
   Minus,
   MousePointer2,
@@ -33,23 +23,38 @@ import {
   Plus,
   RotateCcw,
   RotateCw,
-  Route,
   Save,
-  Settings2,
-  Smile,
-  Sprout,
-  Target,
   Trash2,
-  TrendingUp,
   Trophy,
   Undo2,
-  Volume2,
-  VolumeX,
-  Wallet,
   X,
-  type LucideIcon,
-  type LucideProps,
 } from "lucide-react";
+import {
+  BarrierIcon,
+  BenchIcon,
+  CarIcon,
+  ContractsIcon,
+  CrossingIcon,
+  EntranceIcon,
+  FinanceIcon,
+  FlowersIcon,
+  GridIcon,
+  HelpIcon,
+  IncomeIcon,
+  LampIcon,
+  MotionIcon,
+  MutedIcon,
+  ObjectivesIcon,
+  ParkingIcon,
+  RoadIcon,
+  RoundaboutIcon,
+  SatisfactionIcon,
+  SettingsIcon,
+  SoundIcon,
+  TreasuryIcon,
+  TreeIcon,
+  type GameIcon,
+} from "./game-icons";
 import { LEVELS, TILE_LABELS, TOOLS, euro, type Tool } from "@/game/catalog";
 import {
   canRotate,
@@ -61,50 +66,19 @@ import {
 import { useParkingGame } from "@/game/use-parking-game";
 import { GameMap, CarSprite, Tree } from "./game-map";
 
-const TOOL_ICONS: Partial<Record<Tool, ComponentType<LucideProps>>> = {
-  road: Route,
-  parking: CircleParking,
+const TOOL_ICONS: Partial<Record<Tool, GameIcon>> = {
+  road: RoadIcon,
+  parking: ParkingIcon,
   crossing: CrossingIcon,
   gate: BarrierIcon,
-  roundabout: RotateCw,
-  tree: Sprout,
-  entry: ArrowDownLeft,
-  lamp: LampDesk,
-  bench: Armchair,
-  flowers: Flower2,
+  roundabout: RoundaboutIcon,
+  tree: TreeIcon,
+  entry: EntranceIcon,
+  lamp: LampIcon,
+  bench: BenchIcon,
+  flowers: FlowersIcon,
 };
 
-function CrossingIcon(props: LucideProps) {
-  return (
-    <svg
-      {...props}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-    >
-      <path d="M3 20 9 4M8 20l6-16M13 20l6-16M18 20l3-8" />
-      <path d="M2 3h20M2 21h20" strokeWidth="1" opacity=".4" />
-    </svg>
-  );
-}
-function BarrierIcon(props: LucideProps) {
-  return (
-    <svg
-      {...props}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 21V10h4v11M8 12h13V8H5v2M4 21H2M8 21h2M11 8l3 4M17 8l3 4" />
-      <circle cx="6" cy="15" r=".7" fill="currentColor" />
-    </svg>
-  );
-}
 function IconButton({
   label,
   icon: Icon,
@@ -112,13 +86,15 @@ function IconButton({
   active,
   disabled = false,
   className = "",
+  iconSize = 20,
 }: {
   label: string;
-  icon: LucideIcon;
+  icon: GameIcon;
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
   className?: string;
+  iconSize?: number;
 }) {
   return (
     <button
@@ -130,7 +106,7 @@ function IconButton({
       onClick={onClick}
       className={`game-icon-button ${active ? "bg-[#e4ecda] text-[#3d6249]" : "text-[#697b5e]"} ${className}`}
     >
-      <Icon size={18} strokeWidth={1.7} />
+      <Icon size={iconSize} strokeWidth={1.7} />
     </button>
   );
 }
@@ -401,13 +377,14 @@ export function ParkingGame() {
 
   const playback = (
     <>
-      <span className="mr-2 whitespace-nowrap text-[11px] font-medium text-[#607456]">
-        <span className="hidden min-[480px]:inline">Jour </span>
-        <span className="min-[480px]:hidden">J</span>
-        {Math.floor(state.elapsed / 240) + 1}
-        <span className="ml-2 font-normal text-[#879579]">
-          {clockTime(state.elapsed)}
+      <span
+        className="mr-1 whitespace-nowrap text-[10px] text-[#7a8e68]"
+        title={`Jour ${Math.floor(state.elapsed / 240) + 1}`}
+      >
+        <span className="mr-2 font-medium text-[#587246]">
+          J{Math.floor(state.elapsed / 240) + 1}
         </span>
+        {clockTime(state.elapsed)}
       </span>
       <button
         type="button"
@@ -427,7 +404,7 @@ export function ParkingGame() {
             ? "Ouvrir : reliez une entrée, une sortie et une place au magasin"
             : "Pause / lecture (Espace)"
         }
-        className={`flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg px-2.5 text-[11px] font-medium disabled:cursor-default disabled:opacity-40 ${state.opened ? "text-[#486846] hover:bg-[#e8eedf]" : "bg-[#486548] text-[#f4f7ec]"}`}
+        className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[10px] font-medium disabled:cursor-default disabled:opacity-35 ${state.opened ? "text-[#486846] hover:bg-[#e8eedf]" : "bg-[#486548] text-[#f4f7ec]"}`}
       >
         {game.speed ? (
           <Pause size={13} fill="currentColor" strokeWidth={0} />
@@ -436,25 +413,13 @@ export function ParkingGame() {
         )}
         {!state.opened && "Ouvrir"}
       </button>
-      {[1, 2, 3].map((speed) => (
-        <button
-          key={speed}
-          type="button"
-          disabled={!state.opened || state.status === "lost"}
-          onClick={() => game.setSpeed(speed)}
-          aria-label={`Vitesse ${speed}`}
-          aria-pressed={game.speed === speed}
-          className={`hidden h-7 w-7 rounded-md text-[10px] disabled:opacity-35 min-[480px]:block ${game.speed === speed ? "bg-[#e5edda] font-semibold text-[#4d7043]" : "text-[#839175] hover:bg-[#eef2e7]"}`}
-        >
-          {speed}×
-        </button>
-      ))}
       <select
         aria-label="Vitesse de simulation"
+        title="Vitesse de simulation"
         value={game.speed || 1}
         disabled={!state.opened || state.status === "lost"}
         onChange={(event) => game.setSpeed(Number(event.target.value))}
-        className="h-7 w-9 rounded-md border-0 bg-[#edf2e4] text-[10px] text-[#617d50] disabled:opacity-35 min-[480px]:hidden"
+        className="h-7 w-10 shrink-0 rounded-md border-0 bg-[#edf2e4] pl-1 text-[10px] text-[#617d50] disabled:opacity-35"
       >
         <option value={1}>1×</option>
         <option value={2}>2×</option>
@@ -466,34 +431,39 @@ export function ParkingGame() {
     <>
       <IconButton
         label={`Objectifs (${completedGoals}/4)`}
-        className="!size-7 sm:!size-8"
-        icon={Target}
+        icon={ObjectivesIcon}
+        iconSize={25}
         active={modal === "objectives"}
         onClick={() => setModal("objectives")}
+        className="!size-9"
       />
       <IconButton
         label="Contrats"
-        className="!size-7 sm:!size-8"
-        icon={BriefcaseBusiness}
+        icon={ContractsIcon}
+        iconSize={25}
         onClick={() => setModal("contracts")}
+        className="!size-9"
       />
       <IconButton
         label="Finances"
-        className="!size-7 sm:!size-8"
-        icon={TrendingUp}
+        icon={FinanceIcon}
+        iconSize={25}
         onClick={() => setModal("stats")}
+        className="!size-9"
       />
       <IconButton
         label="Comment jouer"
-        className="!size-7 sm:!size-8"
-        icon={CircleHelp}
+        icon={HelpIcon}
+        iconSize={25}
         onClick={() => setModal("help")}
+        className="!size-9"
       />
       <IconButton
-        label="Préférences"
-        className="!size-7 sm:!size-8"
-        icon={Settings2}
+        label="Paramètres"
+        icon={SettingsIcon}
+        iconSize={25}
         onClick={() => setModal("settings")}
+        className="!size-9"
       />
     </>
   );
@@ -540,40 +510,80 @@ export function ParkingGame() {
           </span>
           <ChevronDown size={12} className="ml-2 shrink-0 text-[#8b9a7b]" />
         </button>
-        <div className="absolute top-4 right-4 flex flex-col gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c] sm:top-5 sm:right-5">
-          <IconButton
-            label="Zoom avant"
-            icon={Plus}
-            onClick={() => setZoom((value) => Math.min(2.8, value + 0.2))}
-            disabled={zoom >= 2.8}
-          />
-          <span className="text-center text-[9px] text-[#7f906e] tabular-nums">
-            {Math.round(zoom * 100)}%
-          </span>
-          <IconButton
-            label="Zoom arrière"
-            icon={Minus}
-            onClick={() => setZoom((value) => Math.max(0.6, value - 0.2))}
-            disabled={zoom <= 0.6}
-          />
-          <div className="mx-2 my-1 h-px bg-[#dfe7d1]" />
-          <IconButton
-            label="Recentrer la carte"
-            icon={Expand}
-            onClick={() => {
-              setZoom(
-                window.matchMedia("(max-width: 639px)").matches ? 1.2 : 1.1,
-              );
-              setPan({ x: 0, y: 0 });
-            }}
-          />
-          <IconButton
-            label="Afficher la grille (G)"
-            icon={Grid2X2}
-            active={gridVisible}
-            onClick={() => setGridVisible((value) => !value)}
-          />
-        </div>
+        <aside
+          aria-label="Menus et affichage"
+          className="absolute top-4 right-4 bottom-4 flex w-[46px] flex-col gap-3 overflow-y-auto [scrollbar-width:none] sm:top-5 sm:right-5 sm:bottom-5"
+        >
+          <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]">
+            <IconButton
+              label="Zoom avant"
+              icon={Plus}
+              onClick={() => setZoom((value) => Math.min(2.8, value + 0.2))}
+              disabled={zoom >= 2.8}
+              className="!size-9"
+            />
+            <span className="text-center text-[9px] text-[#7f906e] tabular-nums">
+              {Math.round(zoom * 100)}%
+            </span>
+            <IconButton
+              label="Zoom arrière"
+              icon={Minus}
+              onClick={() => setZoom((value) => Math.max(0.6, value - 0.2))}
+              disabled={zoom <= 0.6}
+              className="!size-9"
+            />
+            <div className="mx-2 my-1 h-px w-5 bg-[#dfe7d1]" />
+            <IconButton
+              label="Recentrer la carte"
+              icon={Expand}
+              onClick={() => {
+                setZoom(
+                  window.matchMedia("(max-width: 639px)").matches ? 1.2 : 1.1,
+                );
+                setPan({ x: 0, y: 0 });
+              }}
+              className="!size-9"
+            />
+            <IconButton
+              label="Afficher la grille (G)"
+              icon={GridIcon}
+              iconSize={24}
+              active={gridVisible}
+              onClick={() => setGridVisible((value) => !value)}
+              className="!size-9"
+            />
+          </div>
+          <nav
+            aria-label="Gestion et paramètres"
+            className="mt-auto flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]"
+          >
+            {menuButtons}
+            <span
+              role="status"
+              aria-label={
+                game.saveStatus === "error"
+                  ? "Sauvegarde indisponible"
+                  : game.saveStatus === "cloud"
+                    ? "Sauvegardé dans le cloud"
+                    : "Sauvegarde locale automatique"
+              }
+              title={
+                game.saveStatus === "error"
+                  ? "Sauvegarde indisponible"
+                  : game.saveStatus === "cloud"
+                    ? "Sauvegardé dans le cloud"
+                    : "Sauvegarde locale automatique"
+              }
+              className="flex h-5 items-center justify-center text-[#8ba174]"
+            >
+              {game.saveStatus === "error" ? (
+                <Save size={13} className="text-[#b08d67]" />
+              ) : (
+                <CheckCheck size={13} />
+              )}
+            </span>
+          </nav>
+        </aside>
         {game.notice && (
           <div
             role="status"
@@ -599,131 +609,84 @@ export function ParkingGame() {
         aria-label="Construction et gestion du parking"
         className="z-10 shrink-0 border-t border-[#cfd9c1] bg-[#fcfdf7] shadow-[0_-3px_20px_#40573608]"
       >
-        <div className="flex items-center border-b border-[#e5eadc] px-2 sm:px-4">
+        <div className="flex h-16 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden px-3 [scrollbar-color:#bdcdae_transparent] [scrollbar-width:thin] sm:gap-3 sm:px-4">
           <div
-            className="grid min-w-0 flex-1 grid-cols-4"
+            className="flex shrink-0 items-center gap-3"
             aria-label="Indicateurs du parking"
           >
             <Metric
-              icon={Wallet}
+              icon={TreasuryIcon}
               label="Trésorerie"
               value={euro(state.balance)}
               negative={state.balance < 0}
             />
             <Metric
-              icon={TrendingUp}
+              icon={IncomeIcon}
               label="Recettes"
               value={euro(state.income, state.income % 1 ? 1 : 0)}
             />
             <Metric
-              icon={CarFront}
+              icon={CarIcon}
               label="Stationnement"
               value={
                 <>
                   {occupied}
-                  <span className="ml-1 text-[12px] font-normal text-[#8b997b]">
+                  <span className="ml-0.5 text-[11px] font-normal text-[#829570]">
                     / {info.usable.length}
                   </span>
                 </>
               }
             />
             <Metric
-              icon={Smile}
+              icon={SatisfactionIcon}
               label="Satisfaction"
               value={`${Math.round(state.happiness)} %`}
               negative={state.happiness < 35}
             />
           </div>
-          <div className="ml-5 hidden shrink-0 items-center gap-1 border-l border-[#e1e7d7] pl-5 xl:flex">
-            {playback}
-            <div className="mx-3 h-6 w-px bg-[#e2e8d8]" />
-            {menuButtons}
-            <span
-              className="ml-1 px-1 text-[#88a173]"
-              title={
-                game.saveStatus === "error"
-                  ? "Sauvegarde indisponible"
-                  : game.saveStatus === "cloud"
-                    ? "Sauvegardé dans le cloud"
-                    : "Sauvegarde locale automatique"
-              }
-            >
-              {game.saveStatus === "error" ? (
-                <Save size={15} className="text-[#b08d67]" />
-              ) : (
-                <CheckCheck size={15} />
-              )}
-            </span>
-          </div>
-        </div>
-        <div className="flex h-[68px] items-center gap-1.5 px-2 sm:gap-2 sm:px-4">
-          <IconButton
-            label="Sélectionner / déplacer (V)"
-            icon={MousePointer2}
-            active={tool === "select"}
-            onClick={() => selectTool("select")}
-            className="!size-9"
-          />
-          <div className="mx-0.5 h-8 w-px shrink-0 bg-[#e0e6d6]" />
+          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
           <div
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            className="flex shrink-0 items-center gap-0.5"
             aria-label="Outils de construction"
           >
+            <IconButton
+              label="Sélectionner / déplacer (V)"
+              icon={MousePointer2}
+              active={tool === "select"}
+              onClick={() => selectTool("select")}
+              className="!size-10"
+            />
             {TOOLS.map((item) => {
               const Icon = TOOL_ICONS[item.id]!;
               return (
                 <button
-                  type="button"
                   key={item.id}
-                  onClick={() => selectTool(item.id)}
+                  type="button"
                   aria-label={`${item.label} — ${euro(item.price)} (touche ${item.key})`}
                   aria-pressed={tool === item.id}
+                  onClick={() => selectTool(item.id)}
                   title={`${item.label} · ${euro(item.price)} · ${item.description} (${item.key})`}
-                  className={`relative flex h-[56px] w-[62px] shrink-0 flex-col items-center justify-center gap-1 rounded-[9px] transition-colors ${tool === item.id ? "bg-[#456246] text-[#f0f5e6]" : "text-[#6b805b] hover:bg-[#edf2e4]"}`}
+                  className={`flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors ${tool === item.id ? "bg-[#e1ebd5] shadow-[inset_0_0_0_1px_#97b17f]" : "hover:bg-[#eff3e8]"}`}
                 >
-                  <Icon size={20} strokeWidth={1.55} />
-                  <span className="whitespace-nowrap text-[9px] font-medium">
-                    {item.label}
-                  </span>
-                  <span
-                    className={`text-[9px] ${tool === item.id ? "text-[#c1d1b1]" : "text-[#91a17f]"}`}
-                  >
-                    {euro(item.price)}
-                  </span>
+                  <Icon size={27} />
                 </button>
               );
             })}
           </div>
-          <div className="mx-0.5 h-8 w-px shrink-0 bg-[#e0e6d6]" />
-          <div className="hidden max-w-[115px] min-w-[80px] flex-col px-2 lg:flex">
-            <span className="truncate text-[10px] font-medium text-[#5e7850]">
-              {selectedTile
-                ? TILE_LABELS[
-                    selectedTile.group ? "roundabout" : selectedTile.kind
-                  ]
-                : (selectedTool?.label ?? "Sélection")}
-            </span>
-            <span className="mt-1 text-[9px] text-[#879777]">
-              {selectedTile?.fixed
-                ? "Non modifiable"
-                : rotatable
-                  ? `${(selectedTile?.rotation ?? rotation) * 90}°`
-                  : selection
-                    ? "Sélectionné"
-                    : ""}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
+          <div
+            className="flex shrink-0 items-center gap-0.5"
+            aria-label="Modifier la sélection"
+          >
             <button
               type="button"
               aria-label="Pivoter (R)"
-              title="Pivoter de 90° (R)"
+              title={`${selectedTile ? TILE_LABELS[selectedTile.group ? "roundabout" : selectedTile.kind] : (selectedTool?.label ?? "Sélection")} · ${(selectedTile?.rotation ?? rotation) * 90}° · Pivoter de 90° (R)`}
               onClick={rotate}
               disabled={!rotatable}
-              className="flex h-[56px] w-[44px] flex-col items-center justify-center gap-1 rounded-lg text-[#5f7c4d] hover:bg-[#edf2e4] disabled:cursor-default disabled:opacity-30"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[#5c7c48] hover:bg-[#edf2e4] disabled:cursor-default disabled:opacity-30"
             >
-              <RotateCw size={19} strokeWidth={1.7} />
-              <span className="text-[9px]">Pivoter</span>
+              <RotateCw size={21} strokeWidth={1.7} />
             </button>
             {selection ? (
               <IconButton
@@ -750,11 +713,12 @@ export function ParkingGame() {
               className="!size-9"
             />
           </div>
-        </div>
-        <div className="flex h-[38px] items-center justify-between gap-1 border-t border-[#e5eadc] px-2 sm:px-4 xl:hidden">
-          <div className="flex min-w-0 items-center gap-0.5">{playback}</div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {menuButtons}
+          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
+          <div
+            className="ml-auto flex shrink-0 items-center gap-1"
+            aria-label="Heure et simulation"
+          >
+            {playback}
           </div>
         </div>
       </footer>
@@ -981,22 +945,22 @@ export function ParkingGame() {
         </Modal>
       )}
       {modal === "settings" && (
-        <Modal title="Préférences" onClose={() => setModal(null)}>
+        <Modal title="Paramètres" onClose={() => setModal(null)}>
           <SettingRow
             label="Sons"
-            icon={soundOn ? Volume2 : VolumeX}
+            icon={soundOn ? SoundIcon : MutedIcon}
             active={soundOn}
             onClick={toggleSound}
           />
           <SettingRow
             label="Grille"
-            icon={Grid2X2}
+            icon={GridIcon}
             active={gridVisible}
             onClick={() => setGridVisible((value) => !value)}
           />
           <SettingRow
             label="Réduire les animations"
-            icon={Sprout}
+            icon={MotionIcon}
             active={reducedMotion}
             onClick={() => setReducedMotion((value) => !value)}
           />
@@ -1117,28 +1081,24 @@ function Metric({
   value,
   negative = false,
 }: {
-  icon: LucideIcon;
+  icon: GameIcon;
   label: string;
   value: ReactNode;
   negative?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 border-r border-[#e7ebde] px-2 py-2 last:border-0 sm:px-4 xl:py-2.5">
-      <Icon
-        size={19}
-        strokeWidth={1.5}
-        className="hidden shrink-0 text-[#8c9f76] sm:block"
-      />
-      <div className="min-w-0">
-        <p className="truncate text-[8px] font-medium tracking-[.06em] text-[#7e906b] uppercase sm:text-[9px]">
-          {label}
-        </p>
-        <div
-          className={`mt-1 whitespace-nowrap text-[15px] leading-none font-semibold tracking-tight tabular-nums sm:text-[18px] ${negative ? "text-[#b07859]" : "text-[#46613e]"}`}
-        >
-          {value}
-        </div>
-      </div>
+    <div
+      role="group"
+      aria-label={label}
+      title={label}
+      className="flex shrink-0 items-center gap-1.5"
+    >
+      <Icon size={24} className="shrink-0" />
+      <span
+        className={`whitespace-nowrap text-[13px] leading-none font-semibold tracking-tight tabular-nums ${negative ? "text-[#b07859]" : "text-[#46613e]"}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -1149,13 +1109,13 @@ function SettingRow({
   onClick,
 }: {
   label: string;
-  icon: LucideIcon;
+  icon: GameIcon;
   active: boolean;
   onClick: () => void;
 }) {
   return (
     <div className="flex items-center gap-3 border-b border-[#e3ead8] py-3 last:border-0">
-      <Icon size={18} className="text-[#8a9e75]" strokeWidth={1.5} />
+      <Icon size={25} className="shrink-0" />
       <span className="flex-1 text-[12px] text-[#6d8459]">{label}</span>
       <button
         type="button"
