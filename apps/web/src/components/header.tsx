@@ -14,7 +14,7 @@ export default function Header() {
       <div className="flex h-12 items-center justify-between px-4">
         <div className="flex items-center gap-6">
           <Link to="/" className="text-base font-semibold tracking-tight">
-            Toma Stack
+            Parkside
           </Link>
           <nav className="flex items-center gap-4">
             <Authenticated>

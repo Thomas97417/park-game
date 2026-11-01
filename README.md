@@ -1,6 +1,22 @@
-# Park Game
+# Parkside — Park Game
 
-Application TypeScript avec React, TanStack Start et Convex.
+Un city builder de parking en français, réalisé avec React 19, TanStack Start, Convex et Tailwind CSS v4. Aménagez les abords d’un commerce, accueillez les clients et encaissez le stationnement à la sortie.
+
+## Jouer
+
+La route `/` ouvre directement le jeu, sans compte obligatoire. Le parking de départ est déjà opérationnel : choisissez un outil dans la barre inférieure pour l’agrandir.
+
+- **Construire** : routes par glisser, places orientables, passages piétons, barrières de paiement, entrées, ronds-points de 3 × 3 cases et arbres. Les terrains de la ville et les bâtiments sont protégés.
+- **Circuler** : chaque voiture suit un itinéraire réel sur le réseau, réserve une place accessible, attend la fin des courses, puis paie une seule fois à une barrière de sortie. Des piétons rejoignent le magasin.
+- **Gérer** : ajustez le tarif, surveillez les recettes, l’entretien et la satisfaction. Un découvert ou une satisfaction inférieure à 35 % pendant 45 secondes de simulation entraîne la perte du contrat.
+- **Progresser** : remplissez les quatre objectifs et validez le contrat pour toucher la prime et débloquer un commerce plus grand : épicerie, supermarché, centre commercial.
+- **Sauvegarder** : sauvegarde locale toutes les 8 secondes et à la sortie de l’onglet ; synchronisation Convex pour les comptes connectés. Export JSON depuis les préférences. La simulation se suspend quand l’onglet est masqué et pendant les dialogues.
+
+Raccourcis : `1` à `7` pour les outils, `R` pour pivoter, `V` pour déplacer la carte, `G` pour la grille, `B` pour démolir, `Ctrl/⌘ Z` pour annuler et `Espace` pour mettre en pause. La carte permet aussi de sélectionner une case avec les flèches et de construire avec `Entrée`.
+
+La carte, les véhicules et les bâtiments sont dessinés en SVG, sans ressources externes. L’interface est composée avec Tailwind ; quelques classes CSS partagées gèrent les boutons, les dialogues et la réduction des animations.
+
+Le moteur indépendant de React est dans `apps/web/src/game/engine.ts`. Les sauvegardes sont validées par un schéma partagé dans `packages/backend/convex/lib/parkingState.ts` et stockées par utilisateur via `packages/backend/convex/parking.ts`.
 
 Le boilerplate inclut l’authentification Better Auth, la vérification d’email et la réinitialisation du mot de passe via Resend, ainsi que les connexions Google et GitHub. L’interface utilise Tailwind CSS et shadcn/ui ; le monorepo utilise Bun et Turborepo.
 
@@ -163,6 +179,18 @@ park-game/
 | `bun run dev:web`    | Lancer uniquement le frontend                                |
 | `bun run dev:server` | Lancer uniquement le backend Convex en développement         |
 | `bun run build`      | Construire l’application pour la production                  |
+
+### Vérifier le jeu
+
+```bash
+bun test tests/parking-engine.test.ts
+bunx --bun tsc --project apps/web/tsconfig.json --noEmit
+bunx --bun tsc --project packages/backend/convex/tsconfig.json --noEmit
+bunx --bun tsc --project packages/env/tsconfig.json --noEmit
+bun run build
+```
+
+Les tests couvrent les connexions routières, l’orientation des places, les coûts et remboursements, le paiement unique aux sorties, la perte des contrats, leur progression et l’intégrité des sauvegardes. Le dernier contrat est également testé avec 50 places et une simulation complète de clientèle.
 
 ## Documentation
 

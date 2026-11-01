@@ -8,8 +8,8 @@ import {
   Scripts,
   createRootRouteWithContext,
   useRouteContext,
+  useLocation,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { createServerFn } from "@tanstack/react-start";
 
 import { Toaster } from "@/components/ui/sonner";
@@ -42,7 +42,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Toma Stack",
+        title: "Parkside",
       },
     ],
     links: [
@@ -55,7 +55,9 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 
   component: RootDocument,
   beforeLoad: async (ctx) => {
-    const token = await getAuth();
+    // A temporary auth outage must not prevent guests from playing locally.
+    // Protected routes still require a valid token and fail closed.
+    const token = await getAuth().catch(() => undefined);
     if (token) {
       ctx.context.convexQueryClient.serverHttpClient?.setAuth(token);
     }
@@ -70,13 +72,16 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 
 function RootDocument() {
   const context = useRouteContext({ from: Route.id });
+  const isGame = useLocation({
+    select: (location) => location.pathname === "/",
+  });
   return (
     <ConvexBetterAuthProvider
       client={context.convexQueryClient.convexClient}
       authClient={authClient}
       initialToken={context.token}
     >
-      <html lang="en" suppressHydrationWarning>
+      <html lang="fr" suppressHydrationWarning>
         <head>
           <HeadContent />
         </head>
@@ -84,17 +89,21 @@ function RootDocument() {
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
+            forcedTheme={isGame ? "light" : undefined}
             disableTransitionOnChange
             storageKey="vite-ui-theme"
           >
-            <div className="grid h-svh grid-rows-[auto_1fr]">
-              <Header />
-              <div className="overflow-y-auto">
-                <Outlet />
+            {isGame ? (
+              <Outlet />
+            ) : (
+              <div className="grid h-svh grid-rows-[auto_1fr]">
+                <Header />
+                <div className="overflow-y-auto">
+                  <Outlet />
+                </div>
               </div>
-            </div>
+            )}
             <Toaster richColors />
-            <TanStackRouterDevtools position="bottom-left" />
             <Scripts />
           </ThemeProvider>
         </body>
