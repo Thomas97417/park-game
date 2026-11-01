@@ -1,6 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides project guidance to coding agents working in this repository.
+
+## Repository
+
+The GitHub repository and `origin` remote are `https://github.com/Thomas97417/park-game.git`.
 
 ## Commands
 
@@ -11,10 +15,21 @@ bun run dev:web          # Start only the web frontend (port 3001)
 bun run dev:server       # Start only the Convex backend
 bun run dev:setup        # Initialize/configure Convex project (first-time setup)
 bun run build            # Build all applications
-bun run check-types      # TypeScript type checking across all workspaces
 ```
 
-Convex environment variables from `packages/backend/.env.local` must be copied to `apps/web/.env`.
+Run TypeScript checks explicitly for each workspace:
+
+```bash
+bunx --bun tsc --project apps/web/tsconfig.json --noEmit
+bunx --bun tsc --project packages/backend/convex/tsconfig.json --noEmit
+bunx --bun tsc --project packages/env/tsconfig.json --noEmit
+```
+
+## Local configuration
+
+- Set `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` in `apps/web/.env` or `apps/web/.env.local`.
+- `packages/backend/.env.local` contains local Convex CLI configuration. Configure backend secrets on the Convex deployment, as described in `README.md`.
+- `.worktreeinclude` lists the ignored local environment files to copy into Codex-managed worktrees.
 
 ## Architecture
 
