@@ -7,6 +7,9 @@ import {
   claimContract,
   createGame,
   step,
+  rotatePlaced,
+  openParking,
+  type BuildResult,
   type BuildUndo,
   type ParkingState,
   type Point,
@@ -15,7 +18,7 @@ import { STORAGE_KEY, type Tool } from "./catalog";
 
 export function useParkingGame() {
   const [state, setState] = useState<ParkingState>(() => createGame());
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(0);
   const [ready, setReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"local" | "cloud" | "error">(
     "local",
@@ -58,6 +61,7 @@ export function useParkingGame() {
         if (saved) {
           update(saved);
           initialSavedAt.current = saved.savedAt;
+          setSpeed(saved.opened ? 1 : 0);
           setLastSaved(saved.savedAt);
         } else
           notify(
@@ -86,6 +90,7 @@ export function useParkingGame() {
       !hasLocalEdits.current
     ) {
       update(saved);
+      setSpeed(saved.opened ? 1 : 0);
       history.current = [];
       setCanUndo(false);
       notify("Votre contrat a été restauré depuis le cloud.");
@@ -142,23 +147,45 @@ export function useParkingGame() {
     };
   }, [ready, save]);
 
-  const place = useCallback(
-    (tool: Tool, point: Point, rotation: number) => {
-      const result = build(stateRef.current, tool, point, rotation);
+  const apply = useCallback(
+    (result: BuildResult) => {
       if (result.error) {
         notify(result.error);
-        return;
+        return false;
       }
-      if (result.undo) {
-        hasLocalEdits.current = true;
-        history.current.push(result.undo);
-        if (history.current.length > 40) history.current.shift();
-        setCanUndo(true);
-        update(result.state);
-      }
+      if (!result.undo) return false;
+      hasLocalEdits.current = true;
+      history.current.push(result.undo);
+      if (history.current.length > 40) history.current.shift();
+      setCanUndo(true);
+      update(result.state);
+      return true;
     },
     [notify, update],
   );
+
+  const place = useCallback(
+    (tool: Tool, point: Point, rotation: number) =>
+      apply(build(stateRef.current, tool, point, rotation)),
+    [apply],
+  );
+  const rotate = useCallback(
+    (point: Point) => apply(rotatePlaced(stateRef.current, point)),
+    [apply],
+  );
+  const open = useCallback(() => {
+    const current = stateRef.current;
+    const next = openParking(current);
+    if (next === current) {
+      notify(
+        "Reliez une entrée, une barrière de sortie et une place au magasin.",
+      );
+      return;
+    }
+    hasLocalEdits.current = true;
+    update(next);
+    setSpeed(1);
+  }, [notify, update]);
 
   const undo = useCallback(() => {
     const previous = history.current.pop();
@@ -182,9 +209,8 @@ export function useParkingGame() {
       update(createGame(level, current.unlocked));
       history.current = [];
       setCanUndo(false);
-      setSpeed(1);
+      setSpeed(0);
       void save();
-      notify("Nouveau contrat, nouvelles possibilités. À vous de construire !");
     },
     [notify, save, update],
   );
@@ -223,6 +249,8 @@ export function useParkingGame() {
     canUndo,
     isAuthenticated,
     place,
+    rotate,
+    open,
     undo,
     save,
     startContract,

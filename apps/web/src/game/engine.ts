@@ -1,5 +1,6 @@
 import {
   COLS,
+  BUILD_BOUNDS,
   ROWS,
   SAVE_VERSION,
   type ParkingState,
@@ -9,11 +10,13 @@ import {
 } from "@my-better-t-app/backend/convex/lib/parkingState";
 import { CAR_COLORS, LEVELS, TOOLS, type Tool } from "./catalog";
 
-export { COLS, ROWS };
+export { COLS, ROWS, BUILD_BOUNDS };
 export type { ParkingState, Tile, Point, Car };
 export const CELL = 32;
 export const ORIGIN = { x: 64, y: 32 };
-export const STORE_DOOR: Point = { x: 16, y: 7 };
+export const STORE_DOOR: Point = { x: 24, y: 7 };
+export const WORLD_WIDTH = ORIGIN.x * 2 + COLS * CELL;
+export const WORLD_HEIGHT = ORIGIN.y * 2 + ROWS * CELL;
 export const PUBLIC_START: Point = { x: 3, y: 0 };
 export const PUBLIC_END: Point = { x: 3, y: ROWS - 1 };
 const key = (p: Point) => `${p.x},${p.y}`;
@@ -86,6 +89,24 @@ export function parkingAccess(spot: Point, rotation: number): Point {
   ][rotation]!;
 }
 
+export function storeBounds(grid: Tile[][]) {
+  const cells = tilesOf(grid, "store");
+  return {
+    left: Math.min(...cells.map((p) => p.x)),
+    right: Math.max(...cells.map((p) => p.x)),
+    top: Math.min(...cells.map((p) => p.y)),
+    bottom: Math.max(...cells.map((p) => p.y)),
+  };
+}
+
+export function storeDoor(grid: Tile[][]): Point {
+  const bounds = storeBounds(grid);
+  return {
+    x: Math.floor((bounds.left + bounds.right) / 2),
+    y: bounds.bottom + 1,
+  };
+}
+
 function reachableRoads(grid: Tile[][], start: Point): Set<string> {
   const visited = new Set<string>();
   if (!isRoad(grid[start.y]?.[start.x])) return visited;
@@ -107,13 +128,14 @@ export function infrastructure(grid: Tile[][]) {
   const entries = tilesOf(grid, "entry").filter((p) => reachable.has(key(p)));
   const gates = tilesOf(grid, "gate").filter((p) => reachable.has(key(p)));
   const spots = tilesOf(grid, "parking");
+  const door = storeDoor(grid);
   const usable = spots.filter((spot) => {
     const access = parkingAccess(spot, grid[spot.y]![spot.x]!.rotation);
     return (
       entries.length > 0 &&
       gates.length > 0 &&
       reachable.has(key(access)) &&
-      !!findPath(grid, spot, STORE_DOOR, true)
+      !!findPath(grid, spot, door, true)
     );
   });
   return {
@@ -124,7 +146,9 @@ export function infrastructure(grid: Tile[][]) {
     crossings: tilesOf(grid, "crossing").filter((p) => reachable.has(key(p)))
       .length,
     trees: tilesOf(grid, "tree").length,
-    roundabouts: tilesOf(grid, "roundabout").length,
+    roundabouts: tilesOf(grid, "roundabout").filter((p) =>
+      neighbors(p).some((n) => reachable.has(key(n))),
+    ).length,
   };
 }
 
@@ -183,82 +207,30 @@ export function createGame(level = 0, unlocked = level): ParkingState {
     Array.from({ length: COLS }, (_, x) => ({
       kind: "grass",
       rotation: 0,
-      fixed: x < 5 || x > 28 || y < 1 || y > 18,
+      fixed:
+        x < BUILD_BOUNDS.left ||
+        x >= BUILD_BOUNDS.right ||
+        y < BUILD_BOUNDS.top ||
+        y >= BUILD_BOUNDS.bottom,
     })),
   );
-  const put = (
-    x: number,
-    y: number,
-    kind: Tile["kind"],
-    rotation = 0,
-    fixed = false,
-  ) => {
-    grid[y]![x] = { kind, rotation, fixed };
+  const put = (x: number, y: number, kind: Tile["kind"]) => {
+    grid[y]![x] = { kind, rotation: 0, fixed: true };
   };
-  for (let y = 0; y < ROWS; y++) put(3, y, "road", 0, true);
-  for (let x = 0; x < COLS; x++) put(x, 20, "road", 0, true);
-  for (let x = 7; x <= 25; x++) {
-    put(x, 9, "road");
-    put(x, 16, "road");
-  }
-  for (let y = 9; y <= 16; y++) {
-    put(7, y, "road");
-    put(25, y, "road");
-  }
-  for (let x = 4; x <= 7; x++) {
-    put(x, 13, "road");
-    put(x, 16, "road");
-  }
-  put(6, 13, "entry", 1);
-  put(6, 16, "gate", 1);
-  const shopLeft = level === 0 ? 11 : level === 1 ? 10 : 8;
-  const shopRight = level === 0 ? 21 : level === 1 ? 22 : 24;
+  for (let y = 0; y < ROWS; y++) put(3, y, "road");
+  for (let x = 0; x < COLS; x++) put(x, 30, "road");
+  const left = level === 0 ? 19 : level === 1 ? 18 : 16;
+  const right = level === 0 ? 29 : level === 1 ? 30 : 32;
   for (let y = level === 2 ? 1 : 2; y <= 6; y++)
-    for (let x = shopLeft; x <= shopRight; x++) put(x, y, "store", 0, true);
-  for (let x = 9; x <= 23; x++) put(x, 7, "path", 0, true);
-  put(16, 8, "path", 0, true);
-  put(16, 9, "crossing");
-  for (const x of [10, 11, 12, 13, 18, 19, 20, 21]) {
-    put(x, 10, "parking", 0);
-    put(x, 15, "parking", 2);
-  }
-  for (const [x, y] of [
-    [9, 12],
-    [12, 12],
-    [20, 12],
-    [23, 12],
-    [5, 6],
-    [6, 3],
-    [26, 4],
-    [27, 7],
-    [27, 17],
-    [6, 18],
-    [19, 18],
-    [9, 18],
-  ])
-    put(x!, y!, "tree");
-  const spots = tilesOf(grid, "parking");
-  const cars: Car[] = spots
-    .filter((_, i) => i % 2 === 0)
-    .map((spot, i) => ({
-      id: i,
-      color: CAR_COLORS[i % CAR_COLORS.length]!,
-      spot,
-      path: [spot],
-      progress: 0,
-      phase: "shopping",
-      wait: 0,
-      shoppingTime: 8 + i * 4,
-      paid: false,
-      fee: 3,
-    }));
+    for (let x = left; x <= right; x++) put(x, y, "store");
+  for (let x = left - 1; x <= right + 1; x++) put(x, 7, "path");
   return {
     version: SAVE_VERSION,
     savedAt: 0,
     level,
     unlocked,
     grid,
-    cars,
+    cars: [],
     balance: LEVELS[level]!.budget,
     income: 0,
     expenses: 0,
@@ -266,15 +238,26 @@ export function createGame(level = 0, unlocked = level): ParkingState {
     missed: 0,
     happiness: 92,
     elapsed: 0,
-    spawnTimer: 4,
+    spawnTimer: 0,
     upkeepTimer: 0,
     price: 3,
-    nextCarId: 8,
+    nextCarId: 0,
     debtTime: 0,
     unhappyTime: 0,
     status: "playing",
     completed: false,
+    opened: false,
   };
+}
+
+export function openParking(state: ParkingState): ParkingState {
+  if (
+    state.status !== "playing" ||
+    state.opened ||
+    infrastructure(state.grid).usable.length === 0
+  )
+    return state;
+  return { ...state, opened: true };
 }
 
 export interface BuildUndo {
@@ -299,6 +282,7 @@ export function build(
     return fail("Ce contrat est terminé. Relancez une partie.");
   if (!inBounds(point) || tool === "select") return { state };
   const old = state.grid[point.y]![point.x]!;
+  if (tool === "road" && isRoad(old)) return { state };
   if (old.fixed)
     return fail("Ce terrain appartient à la ville ou au commerce.");
   const grid = state.grid.map((row) => row.map((tile) => ({ ...tile })));
@@ -324,7 +308,12 @@ export function build(
     )
       return fail("Un client utilise cet aménagement. Attendez son départ.");
     for (const cell of cells)
-      grid[cell.y]![cell.x] = { kind: "grass", rotation: 0 };
+      grid[cell.y]![cell.x] = {
+        kind: ["crossing", "entry", "gate"].includes(old.kind)
+          ? "road"
+          : "grass",
+        rotation: 0,
+      };
     delta = Math.round(
       (TOOLS.find((t) => t.id === (old.group ? "roundabout" : old.kind))
         ?.price ?? 35) * 0.4,
@@ -337,7 +326,13 @@ export function build(
     if (["crossing", "entry", "gate"].includes(tool)) {
       if (!isRoad(old) || old.kind !== "road" || old.group)
         return fail("Placez cet équipement sur une route libre.");
-    } else if (old.kind !== "grass")
+    } else if (
+      old.kind !== "grass" &&
+      !(
+        tool === "road" &&
+        ["tree", "lamp", "bench", "flowers"].includes(old.kind)
+      )
+    )
       return fail("Cette case est déjà occupée.");
     if (tool === "roundabout") {
       const cells = Array.from({ length: 9 }, (_, i) => ({
@@ -347,7 +342,9 @@ export function build(
       if (
         cells.some(
           (cell) =>
-            !inBounds(cell) || state.grid[cell.y]![cell.x]!.kind !== "grass",
+            !inBounds(cell) ||
+            state.grid[cell.y]![cell.x]!.fixed ||
+            state.grid[cell.y]![cell.x]!.kind !== "grass",
         )
       )
         return fail("Un rond-point a besoin de 3 × 3 cases libres.");
@@ -370,6 +367,37 @@ export function build(
       expenses: state.expenses + expenseDelta,
     },
     undo: { grid: state.grid, delta, expenseDelta },
+  };
+}
+
+export const canRotate = (tile?: Tile) =>
+  !!tile &&
+  !tile.fixed &&
+  ["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(tile.kind);
+
+export function rotatePlaced(state: ParkingState, point: Point): BuildResult {
+  if (!inBounds(point) || state.status !== "playing") return { state };
+  const tile = state.grid[point.y]![point.x]!;
+  if (!canRotate(tile))
+    return { state, error: "Cet élément ne peut pas pivoter." };
+  if (
+    state.cars.some(
+      (car) =>
+        same(car.spot, point) ||
+        car.path
+          .slice(Math.floor(car.progress), Math.floor(car.progress) + 2)
+          .some((p) => same(p, point)),
+    )
+  )
+    return {
+      state,
+      error: "Un client utilise cet aménagement. Attendez son départ.",
+    };
+  const grid = state.grid.map((row) => row.slice());
+  grid[point.y]![point.x] = { ...tile, rotation: (tile.rotation + 1) % 4 };
+  return {
+    state: { ...state, grid },
+    undo: { grid: state.grid, delta: 0, expenseDelta: 0 },
   };
 }
 
@@ -412,7 +440,7 @@ export function step(
   dt: number,
   random: () => number = Math.random,
 ): ParkingState {
-  if (state.status !== "playing") return state;
+  if (state.status !== "playing" || !state.opened) return state;
   const info = infrastructure(state.grid);
   const level = LEVELS[state.level];
   let { balance, income, expenses, served, missed, happiness, nextCarId } =

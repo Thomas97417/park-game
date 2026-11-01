@@ -5,7 +5,16 @@ export type Tool =
   | "erase"
   | Extract<
       TileKind,
-      "road" | "parking" | "crossing" | "entry" | "gate" | "roundabout" | "tree"
+      | "road"
+      | "parking"
+      | "crossing"
+      | "entry"
+      | "gate"
+      | "roundabout"
+      | "tree"
+      | "lamp"
+      | "bench"
+      | "flowers"
     >;
 
 export const TOOLS: {
@@ -28,8 +37,7 @@ export const TOOLS: {
     label: "Place",
     price: 60,
     key: "2",
-    description:
-      "Une place, un client de plus. Orientez son ouverture vers une route avec R.",
+    description: "Orientez l’ouverture vers une route avec R.",
   },
   {
     id: "crossing",
@@ -59,8 +67,7 @@ export const TOOLS: {
     label: "Arbre",
     price: 40,
     key: "6",
-    description:
-      "Un peu de verdure améliore l’expérience et la satisfaction des clients.",
+    description: "Améliore la satisfaction. Remplacé par une route.",
   },
   {
     id: "entry",
@@ -69,6 +76,27 @@ export const TOOLS: {
     key: "7",
     description:
       "Créez un nouvel accès sur une route reliée à la voie publique.",
+  },
+  {
+    id: "lamp",
+    label: "Lampadaire",
+    price: 30,
+    key: "8",
+    description: "Éclaire les allées. Remplacé automatiquement par une route.",
+  },
+  {
+    id: "bench",
+    label: "Banc",
+    price: 25,
+    key: "9",
+    description: "Mobilier orientable. Remplacé automatiquement par une route.",
+  },
+  {
+    id: "flowers",
+    label: "Massif",
+    price: 20,
+    key: "0",
+    description: "Massif de fleurs. Remplacé automatiquement par une route.",
   },
 ];
 
@@ -142,3 +170,19 @@ export const CAR_COLORS = [
 export const STORAGE_KEY = "parkside-save-v1";
 export const euro = (value: number, decimals = 0) =>
   `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: decimals, minimumFractionDigits: decimals }).format(value)} €`;
+
+export const TILE_LABELS: Record<TileKind, string> = {
+  grass: "Terrain",
+  road: "Route",
+  parking: "Place",
+  crossing: "Passage piéton",
+  entry: "Entrée",
+  gate: "Barrière",
+  roundabout: "Rond-point",
+  tree: "Arbre",
+  lamp: "Lampadaire",
+  bench: "Banc",
+  flowers: "Massif",
+  path: "Accès du magasin",
+  store: "Commerce",
+};

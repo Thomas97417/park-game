@@ -1,8 +1,9 @@
 import { z } from "zod";
 
-export const COLS = 30;
-export const ROWS = 22;
-export const SAVE_VERSION = 1;
+export const COLS = 46;
+export const ROWS = 32;
+export const SAVE_VERSION = 2;
+export const BUILD_BOUNDS = { left: 4, right: 44, top: 1, bottom: 30 } as const;
 
 export const tileKinds = [
   "grass",
@@ -13,6 +14,9 @@ export const tileKinds = [
   "gate",
   "roundabout",
   "tree",
+  "lamp",
+  "bench",
+  "flowers",
   "path",
   "store",
 ] as const;
@@ -38,7 +42,7 @@ export const carSchema = z.object({
   id: z.number().int().nonnegative(),
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
   spot: pointSchema,
-  path: z.array(pointSchema).max(COLS * ROWS),
+  path: z.array(pointSchema).max(COLS * ROWS * 2),
   progress: z.number().finite().nonnegative(),
   phase: z.enum(["arriving", "shopping", "leaving"]),
   wait: z.number().finite().nonnegative(),
@@ -70,6 +74,7 @@ export const parkingStateSchema = z.object({
   status: z.enum(["playing", "lost"]),
   lossReason: z.string().max(200).optional(),
   completed: z.boolean(),
+  opened: z.boolean(),
 });
 
 export type Tile = z.infer<typeof tileSchema>;
@@ -78,12 +83,50 @@ export type Point = z.infer<typeof pointSchema>;
 export type Car = z.infer<typeof carSchema>;
 export type ParkingState = z.infer<typeof parkingStateSchema>;
 
+const legacySchema = parkingStateSchema.extend({
+  version: z.literal(1),
+  grid: z.array(z.array(tileSchema).length(30)).length(22),
+  opened: z.boolean().optional(),
+});
+
+/** Expand old saves in place: existing buildings, layouts, cars and money survive. */
 export function parseParkingSave(value: string): ParkingState | null {
   try {
-    if (value.length > 250_000) return null;
-    const result = parkingStateSchema.safeParse(JSON.parse(value));
+    if (value.length > 750_000) return null;
+    let candidate: unknown = JSON.parse(value);
+    if (
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "version" in candidate &&
+      candidate.version === 1
+    ) {
+      const legacy = legacySchema.safeParse(candidate);
+      if (!legacy.success) return null;
+      const old = legacy.data;
+      const grid: Tile[][] = Array.from({ length: ROWS }, (_, y) =>
+        Array.from({ length: COLS }, (_, x) => {
+          const tile = old.grid[y]?.[x];
+          const fixed =
+            x < BUILD_BOUNDS.left ||
+            x >= BUILD_BOUNDS.right ||
+            y < BUILD_BOUNDS.top ||
+            y >= BUILD_BOUNDS.bottom;
+          return tile
+            ? { ...tile, fixed: tile.kind === "grass" ? fixed : tile.fixed }
+            : { kind: "grass", rotation: 0, fixed };
+        }),
+      );
+      for (let y = 22; y < ROWS; y++)
+        grid[y]![3] = { kind: "road", rotation: 0, fixed: true };
+      for (let x = 0; x < COLS; x++)
+        grid[30]![x] = { kind: "road", rotation: 0, fixed: true };
+      candidate = { ...old, version: SAVE_VERSION, grid, opened: true };
+    }
+    const result = parkingStateSchema.safeParse(candidate);
     if (!result.success) return null;
     const state = result.data;
+    if (!state.grid.some((row) => row.some((tile) => tile.kind === "store")))
+      return null;
     if (
       state.cars.some(
         (car) => car.path.length === 0 || car.progress > car.path.length - 1,

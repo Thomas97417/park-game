@@ -6,11 +6,10 @@ export const Route = createFileRoute("/")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Parkside — De la place pour vos idées" },
+      { title: "Parkside — Parking builder" },
       {
         name: "description",
-        content:
-          "Un petit coin de ville à imaginer. Construisez votre parking, prenez soin des clients et développez votre entreprise dans Parkside.",
+        content: "Construisez et gérez vos parkings dans Parkside.",
       },
       { name: "theme-color", content: "#fdfdf9" },
     ],

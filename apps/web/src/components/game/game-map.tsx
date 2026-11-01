@@ -1,10 +1,14 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   COLS,
   ROWS,
   CELL,
   ORIGIN,
-  STORE_DOOR,
+  storeDoor,
+  storeBounds,
+  BUILD_BOUNDS,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
   build,
   findPath,
   inBounds,
@@ -189,12 +193,13 @@ function Barrier({
   );
 }
 
-function Shop({ level }: { level: number }) {
+function Shop({ level, grid }: { level: number; grid: Tile[][] }) {
   const info = LEVELS[level]!;
-  const width = level === 0 ? 352 : level === 1 ? 416 : 544;
+  const bounds = storeBounds(grid);
+  const width = (bounds.right - bounds.left + 1) * CELL;
   return (
     <g
-      transform={`translate(${cx(16) - width / 2} ${ORIGIN.y + (level === 2 ? 1 : 2) * CELL}) scale(${width / 416} ${level === 2 ? 1.2 : 1})`}
+      transform={`translate(${ORIGIN.x + bounds.left * CELL} ${ORIGIN.y + bounds.top * CELL}) scale(${width / 416} ${((bounds.bottom - bounds.top + 1) * CELL) / 160})`}
     >
       <path d="M10 16H416l20 19v144H22Z" fill="#567052" opacity="0.15" />
       <rect x="0" y="4" width="416" height="157" rx="4" fill="#536d59" />
@@ -293,17 +298,7 @@ function Shop({ level }: { level: number }) {
       >
         {info.shop}
       </text>
-      <text
-        x="192"
-        y="86"
-        textAnchor="middle"
-        fontSize="6.5"
-        letterSpacing="2.1"
-        fill="#d6e0c9"
-        fontFamily="sans-serif"
-      >
-        FRAIS · LOCAL · DE SAISON
-      </text>
+
       <rect x="8" y="147" width="400" height="15" fill="#e9e7d2" />
       {Array.from({ length: 20 }, (_, i) => (
         <path key={i} d={`M${8 + i * 20} 146h10l2 18h-12Z`} fill="#be9982" />
@@ -324,16 +319,7 @@ function Shop({ level }: { level: number }) {
         strokeWidth="1.5"
       />
       <rect x="183" y="170" width="50" height="13" rx="2" fill="#c8cebb" />
-      <text
-        x="208"
-        y="179"
-        textAnchor="middle"
-        fontSize="5"
-        fill="#7a8b76"
-        letterSpacing="1"
-      >
-        BIENVENUE
-      </text>
+
       {[46, 344, 372].map((x) => (
         <g key={x} transform={`translate(${x} 177)`}>
           <rect x="-8" y="-4" width="16" height="7" rx="2" fill="#a2ac8c" />
@@ -358,7 +344,7 @@ function Shop({ level }: { level: number }) {
 
 function Pedestrian({ car, grid }: { car: Car; grid: Tile[][] }) {
   const path = useMemo(
-    () => findPath(grid, car.spot, STORE_DOOR, true),
+    () => findPath(grid, car.spot, storeDoor(grid), true),
     [car.spot, grid],
   );
   if (!path || car.phase !== "shopping") return null;
@@ -399,6 +385,12 @@ function MapTile({
   const x = cx(point.x);
   const y = cy(point.y);
   if (tile.kind === "tree") return <Tree x={x} y={y} />;
+  if (["lamp", "bench", "flowers"].includes(tile.kind))
+    return (
+      <g transform={`translate(${x} ${y}) rotate(${tile.rotation * 90})`}>
+        <PropSprite kind={tile.kind} />
+      </g>
+    );
   if (tile.kind === "parking") {
     const a = parkingAccess(point, tile.rotation);
     return (
@@ -424,6 +416,73 @@ function MapTile({
   return null;
 }
 
+export function PropSprite({ kind }: { kind: string }) {
+  if (kind === "lamp")
+    return (
+      <g>
+        <path
+          d="m0 8 12 9"
+          stroke="#526244"
+          strokeOpacity=".14"
+          strokeWidth="5"
+        />
+        <circle cy="9" r="4" fill="#899779" />
+        <path d="M0 8V-9h10" stroke="#65725d" strokeWidth="2.5" fill="none" />
+        <rect
+          x="7"
+          y="-12"
+          width="10"
+          height="6"
+          rx="2"
+          fill="#94a18a"
+          stroke="#697b5c"
+        />
+        <rect x="9" y="-10" width="6" height="2" rx="1" fill="#faf0c3" />
+      </g>
+    );
+  if (kind === "bench")
+    return (
+      <g>
+        <rect
+          x="-10"
+          y="-3"
+          width="26"
+          height="14"
+          rx="2"
+          fill="#536247"
+          opacity=".14"
+        />
+        {[-6, -2, 2, 6].map((y) => (
+          <path
+            key={y}
+            d={`M-12 ${y}h24`}
+            stroke="#ad8e69"
+            strokeWidth="2.6"
+            strokeLinecap="round"
+          />
+        ))}
+        <path d="M-8-9v18M8-9v18" stroke="#6f7e60" strokeWidth="2" />
+      </g>
+    );
+  return (
+    <g>
+      <ellipse cx="3" cy="4" rx="15" ry="11" fill="#526244" opacity=".12" />
+      <rect x="-14" y="-12" width="28" height="24" rx="9" fill="#b1c68e" />
+      {[
+        [-7, -4],
+        [2, -6],
+        [8, 1],
+        [-3, 4],
+      ].map(([x, y], i) => (
+        <g key={i}>
+          <circle cx={x} cy={y} r="4" fill={i % 2 ? "#d4ae9b" : "#e6d0a0"} />
+          <circle cx={x} cy={y} r="1.4" fill="#f7ebba" />
+        </g>
+      ))}
+    </g>
+  );
+}
+
 export interface GameMapProps {
   state: ParkingState;
   tool: Tool;
@@ -431,9 +490,10 @@ export interface GameMapProps {
   gridVisible: boolean;
   zoom: number;
   pan: Point;
+  selection: Point | null;
   setPan: (pan: Point) => void;
   onPlace: (tool: Tool, point: Point, rotation: number) => void;
-  onInspect: (point: Point) => void;
+  onSelect: (point: Point) => void;
 }
 
 export function GameMap({
@@ -443,34 +503,72 @@ export function GameMap({
   gridVisible,
   zoom,
   pan,
+  selection,
   setPan,
   onPlace,
-  onInspect,
+  onSelect,
 }: GameMapProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [size, setSize] = useState({
+    width: WORLD_WIDTH,
+    height: WORLD_HEIGHT,
+  });
   const [hover, setHover] = useState<Point | null>(null);
   const dragging = useRef(false);
   const visited = useRef(new Set<string>());
+  const lastPaint = useRef<Point | null>(null);
   const dragStart = useRef<{ x: number; y: number; pan: Point } | null>(null);
   const { grid } = state;
-  const roadPath = useMemo(() => {
-    const segments: string[] = [];
-    grid.forEach((row, y) =>
-      row.forEach((tile, x) => {
-        if (!isRoad(tile)) return;
-        segments.push(`M${cx(x)} ${cy(y)}h.01`);
-        if (isRoad(grid[y]?.[x + 1]))
-          segments.push(`M${cx(x)} ${cy(y)}H${cx(x + 1)}`);
-        if (isRoad(grid[y + 1]?.[x]))
-          segments.push(`M${cx(x)} ${cy(y)}V${cy(y + 1)}`);
-      }),
-    );
-    return segments.join(" ");
-  }, [grid]);
-  const pointAt = (event: PointerEvent<SVGSVGElement>): Point | null => {
+  useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return null;
-    const matrix = svg.getScreenCTM();
+    if (!svg) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry && entry.contentRect.width && entry.contentRect.height)
+        setSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+  const scale =
+    Math.min(size.width / WORLD_WIDTH, size.height / WORLD_HEIGHT) * zoom;
+  const viewWidth = size.width / scale;
+  const viewHeight = size.height / scale;
+  const roadPaths = useMemo(() => {
+    const collect = (publicOnly: boolean) => {
+      const segments: string[] = [];
+      grid.forEach((row, y) =>
+        row.forEach((tile, x) => {
+          if (!isRoad(tile) || (publicOnly ? !tile.fixed : tile.fixed)) return;
+          segments.push(`M${cx(x)} ${cy(y)}h.01`);
+          if (
+            isRoad(grid[y]?.[x + 1]) &&
+            (!publicOnly || grid[y]![x + 1]!.fixed)
+          )
+            segments.push(`M${cx(x)} ${cy(y)}H${cx(x + 1)}`);
+          if (
+            isRoad(grid[y + 1]?.[x]) &&
+            (!publicOnly || grid[y + 1]![x]!.fixed)
+          )
+            segments.push(`M${cx(x)} ${cy(y)}V${cy(y + 1)}`);
+        }),
+      );
+      return segments.join(" ");
+    };
+    return {
+      all: collect(false),
+      public:
+        collect(true) +
+        ` M${cx(3)} -5000V${cy(0)} M${cx(3)} ${cy(ROWS - 1)}V${WORLD_HEIGHT + 5000} M-5000 ${cy(30)}H${cx(0)} M${cx(COLS - 1)} ${cy(30)}H${WORLD_WIDTH + 5000}`,
+    };
+  }, [grid]);
+  const pointAt = (event: {
+    clientX: number;
+    clientY: number;
+  }): Point | null => {
+    const matrix = svgRef.current?.getScreenCTM();
     if (!matrix) return null;
     const p = new DOMPoint(event.clientX, event.clientY).matrixTransform(
       matrix.inverse(),
@@ -481,99 +579,146 @@ export function GameMap({
     };
     return inBounds(point) ? point : null;
   };
-  const paint = (p: Point) => {
+  const paintOne = (p: Point) => {
     const id = `${p.x},${p.y}`;
-    if (visited.current.has(id)) return;
-    visited.current.add(id);
-    onPlace(tool, p, rotation);
+    if (!visited.current.has(id)) {
+      visited.current.add(id);
+      onPlace(tool, p, rotation);
+    }
+  };
+  const paint = (p: Point) => {
+    const previous = lastPaint.current;
+    if (previous) {
+      let x = previous.x,
+        y = previous.y;
+      while (x !== p.x || y !== p.y) {
+        if (x !== p.x) x += Math.sign(p.x - x);
+        paintOne({ x, y });
+        if (y !== p.y) y += Math.sign(p.y - y);
+        paintOne({ x, y });
+      }
+    } else paintOne(p);
+    lastPaint.current = p;
   };
   const ghost =
     hover && tool !== "select" ? build(state, tool, hover, rotation) : null;
-  const ghostValid = ghost && !ghost.error;
-  const viewWidth = 1120 / zoom;
-  const viewHeight = 800 / zoom;
+  const selectedTile = selection ? grid[selection.y]?.[selection.x] : undefined;
+  const selectedCells = selection
+    ? selectedTile?.group
+      ? grid.flatMap((row, y) =>
+          row.flatMap((tile, x) =>
+            tile.group === selectedTile.group ? [{ x, y }] : [],
+          ),
+        )
+      : [selection]
+    : [];
+  const selectedBounds = selectedCells.length
+    ? {
+        left: Math.min(...selectedCells.map((p) => p.x)),
+        right: Math.max(...selectedCells.map((p) => p.x)),
+        top: Math.min(...selectedCells.map((p) => p.y)),
+        bottom: Math.max(...selectedCells.map((p) => p.y)),
+      }
+    : null;
 
   return (
     <svg
       ref={svgRef}
-      viewBox={`${(1120 - viewWidth) / 2 + pan.x} ${(800 - viewHeight) / 2 + pan.y} ${viewWidth} ${viewHeight}`}
+      viewBox={`${(WORLD_WIDTH - viewWidth) / 2 + pan.x} ${(WORLD_HEIGHT - viewHeight) / 2 + pan.y} ${viewWidth} ${viewHeight}`}
       className={`h-full w-full touch-none select-none outline-none ${tool === "select" ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}`}
       role="application"
-      aria-label="Carte du parking. Flèches pour choisir une case, Entrée pour construire. R pour tourner la place."
+      aria-label="Terrain de construction"
       tabIndex={0}
       onKeyDown={(event) => {
         if (
-          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter"].includes(
-            event.key,
-          )
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-          const p = hover ?? { x: 14, y: 10 };
-          if (event.key === "Enter") {
-            if (tool === "select") onInspect(p);
-            else onPlace(tool, p, rotation);
-            return;
-          }
-          setHover({
-            x: Math.max(
-              0,
-              Math.min(
-                COLS - 1,
-                p.x +
-                  (event.key === "ArrowRight"
-                    ? 1
-                    : event.key === "ArrowLeft"
-                      ? -1
-                      : 0),
-              ),
-            ),
-            y: Math.max(
-              0,
-              Math.min(
-                ROWS - 1,
-                p.y +
-                  (event.key === "ArrowDown"
-                    ? 1
-                    : event.key === "ArrowUp"
-                      ? -1
-                      : 0),
-              ),
-            ),
-          });
+          ![
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "Enter",
+          ].includes(event.key)
+        )
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        const p = hover ?? { x: 20, y: 10 };
+        if (event.key === "Enter") {
+          setHover(p);
+          if (tool === "select") onSelect(p);
+          else onPlace(tool, p, rotation);
+          return;
         }
+        setHover({
+          x: Math.max(
+            0,
+            Math.min(
+              COLS - 1,
+              p.x +
+                (event.key === "ArrowRight"
+                  ? 1
+                  : event.key === "ArrowLeft"
+                    ? -1
+                    : 0),
+            ),
+          ),
+          y: Math.max(
+            0,
+            Math.min(
+              ROWS - 1,
+              p.y +
+                (event.key === "ArrowDown"
+                  ? 1
+                  : event.key === "ArrowUp"
+                    ? -1
+                    : 0),
+            ),
+          ),
+        });
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        const p = pointAt(event);
+        if (p) onSelect(p);
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
-        const p = pointAt(event);
         dragging.current = true;
         visited.current.clear();
+        lastPaint.current = null;
         if (tool === "select") {
           dragStart.current = { x: event.clientX, y: event.clientY, pan };
           return;
         }
+        const p = pointAt(event);
         if (p) paint(p);
       }}
       onPointerMove={(event) => {
         const p = pointAt(event);
         setHover(p);
         if (!dragging.current) return;
-        if (tool === "select" && dragStart.current) {
-          const rect = svgRef.current!.getBoundingClientRect();
-          const scale = Math.max(
-            viewWidth / rect.width,
-            viewHeight / rect.height,
-          );
+        if (tool === "select" && dragStart.current)
           setPan({
             x:
               dragStart.current.pan.x -
-              (event.clientX - dragStart.current.x) * scale,
+              (event.clientX - dragStart.current.x) / scale,
             y:
               dragStart.current.pan.y -
-              (event.clientY - dragStart.current.y) * scale,
+              (event.clientY - dragStart.current.y) / scale,
           });
-        } else if (p && ["road", "parking", "tree", "erase"].includes(tool))
+        else if (
+          p &&
+          [
+            "road",
+            "parking",
+            "tree",
+            "lamp",
+            "bench",
+            "flowers",
+            "erase",
+          ].includes(tool)
+        )
           paint(p);
       }}
       onPointerUp={(event) => {
@@ -585,14 +730,16 @@ export function GameMap({
           ) < 5
         ) {
           const p = pointAt(event);
-          if (p) onInspect(p);
+          if (p) onSelect(p);
         }
         dragging.current = false;
         dragStart.current = null;
+        lastPaint.current = null;
       }}
       onPointerCancel={() => {
         dragging.current = false;
         dragStart.current = null;
+        lastPaint.current = null;
       }}
       onPointerLeave={() => {
         if (!dragging.current) setHover(null);
@@ -608,11 +755,11 @@ export function GameMap({
           y={ORIGIN.y}
         >
           <path
-            d={`M ${CELL} 0 H0 V${CELL}`}
+            d={`M${CELL} 0H0V${CELL}`}
             fill="none"
-            stroke="#8ea47b"
-            strokeWidth="0.65"
-            opacity="0.35"
+            stroke="#9eb28e"
+            strokeWidth=".65"
+            opacity=".5"
           />
         </pattern>
         <pattern
@@ -623,93 +770,82 @@ export function GameMap({
         >
           <path
             d="m8 9 1-3m2 3 1-2m25 24 1-3m2 3 1-2"
-            stroke="#b9cca0"
+            stroke="#b4c69a"
             strokeWidth="1"
-            opacity="0.5"
+            opacity=".45"
           />
         </pattern>
       </defs>
-      <rect x="-3000" y="-3000" width="7000" height="7000" fill="#e2e9d6" />
+      <rect x="-5000" y="-5000" width="12000" height="12000" fill="#e2e9d6" />
       <path
-        d="M225-100q150 100 100 230T190 380 330 600 95 1000H-100V-100Z"
+        d={`M-200-200Q300 0 150 350T100 ${WORLD_HEIGHT + 200}H-200Z`}
         fill="#d6e2c7"
       />
       <path
-        d="M940-100Q1100 140 1000 270T1010 630 1300 800V-100Z"
-        fill="#d5e1c4"
+        d={`M${WORLD_WIDTH - 150}-200Q${WORLD_WIDTH - 350} 400 ${WORLD_WIDTH - 50} 700T${WORLD_WIDTH + 300} ${WORLD_HEIGHT + 100}V-200Z`}
+        fill="#d6e2c7"
       />
       <rect
         x="-200"
         y="-200"
-        width="1600"
-        height="1200"
+        width={WORLD_WIDTH + 400}
+        height={WORLD_HEIGHT + 400}
         fill="url(#grass-specks)"
       />
       <rect
-        x={cx(7) - 24}
-        y={cy(9) - 24}
-        width="624"
-        height="272"
-        rx="22"
-        fill="#d6ddca"
-        opacity="0.65"
-      />
-      <rect
-        x={cx(9) - 10}
-        y={cy(12) - 8}
-        width="470"
-        height="65"
-        rx="21"
-        fill="#cbdab5"
+        x={ORIGIN.x + BUILD_BOUNDS.left * CELL}
+        y={ORIGIN.y + BUILD_BOUNDS.top * CELL}
+        width={(BUILD_BOUNDS.right - BUILD_BOUNDS.left) * CELL}
+        height={(BUILD_BOUNDS.bottom - BUILD_BOUNDS.top) * CELL}
+        rx="8"
+        fill="#deE8ce"
+        stroke="#a8bb92"
+        strokeDasharray="6 7"
+        strokeWidth="1.5"
       />
       <path
-        d={`M${cx(3)} -500V1400M-500 ${cy(20)}H1700`}
+        d={roadPaths.public}
+        stroke="#b5c0a7"
+        strokeWidth="53"
         fill="none"
-        stroke="#b7c1aa"
-        strokeWidth="55"
+        strokeLinecap="round"
       />
       <path
-        d={`M${cx(3)} -500V1400M-500 ${cy(20)}H1700`}
-        fill="none"
-        stroke="#f6f5e9"
-        strokeWidth="49"
-      />
-      <path
-        d={roadPath}
-        fill="none"
-        stroke="#b5c1a9"
+        d={roadPaths.all}
+        stroke="#b2bea5"
         strokeWidth="36"
+        fill="none"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d={roadPath}
+        d={roadPaths.public}
+        stroke="#f8f7ed"
+        strokeWidth="48"
         fill="none"
+        strokeLinecap="round"
+      />
+      <path
+        d={roadPaths.all}
         stroke="#faf9ef"
         strokeWidth="32"
+        fill="none"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d={`M${cx(3)} -500V1400M-500 ${cy(20)}H1700`}
+        d={roadPaths.all}
+        stroke="#c0c9b1"
+        strokeWidth="1"
+        strokeDasharray="4 9"
         fill="none"
-        stroke="#faf9ef"
-        strokeWidth="32"
       />
       <path
-        d={`M${cx(3)} -500V1400M-500 ${cy(20)}H1700`}
-        fill="none"
-        stroke="#cfbe7e"
+        d={roadPaths.public}
+        stroke="#c9b97b"
         strokeWidth="1.4"
         strokeDasharray="10 9"
-      />
-      <path
-        d={roadPath}
         fill="none"
-        stroke="#c4cbb7"
-        strokeWidth="1"
-        strokeDasharray="4 8"
-        opacity="0.65"
       />
       {grid.flatMap((row, y) =>
         row.map((tile, x) =>
@@ -722,212 +858,114 @@ export function GameMap({
               height={CELL}
               fill="#e8e7d9"
               stroke="#d8ddca"
-              strokeWidth="0.6"
+              strokeWidth=".6"
             />
           ) : null,
         ),
       )}
-      <rect
-        x={ORIGIN.x + 5 * CELL}
-        y={ORIGIN.y + CELL}
-        width={24 * CELL}
-        height={18 * CELL}
-        rx="13"
-        fill="none"
-        stroke="#a9bb92"
-        strokeWidth="1.5"
-        strokeDasharray="5 7"
-        opacity="0.75"
-      />
-      <g fill="#98aa84" fontFamily="sans-serif" fontSize="7" letterSpacing="2">
-        <text
-          x={cx(26.3)}
-          y={cy(10.5)}
-          transform={`rotate(90 ${cx(26.3)} ${cy(10.5)})`}
-        >
-          LIMITE DU TERRAIN
-        </text>
-        <text
-          x={cx(1.1)}
-          y={cy(8.5)}
-          transform={`rotate(-90 ${cx(1.1)} ${cy(8.5)})`}
-        >
-          AVENUE DES TILLEULS
-        </text>
-      </g>
       {grid.flatMap((row, y) =>
-        row.map((tile, x) => (
-          <MapTile key={`${x}-${y}`} tile={tile} point={{ x, y }} grid={grid} />
-        )),
+        row.map((tile, x) =>
+          ![
+            "grass",
+            "road",
+            "path",
+            "store",
+            "entry",
+            "gate",
+            "crossing",
+          ].includes(tile.kind) ? (
+            <MapTile
+              key={`${x}-${y}`}
+              tile={tile}
+              point={{ x, y }}
+              grid={grid}
+            />
+          ) : null,
+        ),
       )}
-      <Shop level={state.level} />
-      <g fill="#a3af97" fontFamily="sans-serif" fontSize="10" opacity="0.9">
-        <text x={cx(11)} y={cy(9) + 3}>
-          →
-        </text>
-        <text x={cx(20)} y={cy(9) + 3}>
-          →
-        </text>
-        <text x={cx(24)} y={cy(16) + 3}>
-          ←
-        </text>
-        <text x={cx(12)} y={cy(16) + 3}>
-          ←
-        </text>
-        <text x={cx(7) - 4} y={cy(11) + 3}>
-          ↑
-        </text>
-        <text x={cx(25) - 4} y={cy(13) + 3}>
-          ↓
-        </text>
-      </g>
-      <g transform={`translate(${cx(15)} ${cy(12.6)})`}>
-        <path
-          d="M-18-5h36M-18-1h36M-17 3h34"
-          stroke="#aa9980"
-          strokeWidth="2.8"
-          strokeLinecap="round"
-        />
-        <path d="M-13 5v4M13 5v4" stroke="#7c8971" strokeWidth="2" />
-      </g>
-      <g transform={`translate(${cx(17)} ${cy(12.6)})`}>
-        <rect x="-5" y="-7" width="10" height="13" rx="2" fill="#98ac81" />
-        <path d="M-6-7H6M-2-4v7M2-4v7" stroke="#7d9569" strokeWidth="1.5" />
-      </g>
-      {[
-        [14, 13],
-        [18, 13],
-        [10, 18],
-        [23, 6],
-      ].map(([x, y], i) => (
-        <g key={i} transform={`translate(${cx(x!)} ${cy(y!)})`}>
-          <circle r="5" fill="#b1bf86" />
-          <circle cx="-3" cy="-1" r="2" fill="#d4b183" />
-          <circle cx="2" cy="-3" r="1.8" fill="#e2d4a6" />
-          <circle cx="2" cy="2" r="2" fill="#cf9a8d" />
-        </g>
-      ))}
-      {[
-        [8, 8],
-        [24, 8],
-        [8, 17],
-        [24, 17],
-      ].map(([x, y], i) => (
-        <g key={i} transform={`translate(${cx(x!)} ${cy(y!)})`}>
-          <path
-            d="m0 0 9 8"
-            stroke="#667456"
-            strokeOpacity="0.15"
-            strokeWidth="4"
-          />
-          <circle r="3" fill="#8a9a79" />
-          <path d="M0 0v-12h6" stroke="#7b8c6e" strokeWidth="1.5" fill="none" />
-          <rect x="3" y="-14" width="6" height="4" rx="1" fill="#cdd4b9" />
-        </g>
-      ))}
+      <Shop level={state.level} grid={grid} />
       {[
         { x: 0.5, y: 4 },
-        { x: 0.3, y: 13 },
-        { x: 1, y: 17 },
-        { x: 28.5, y: 1 },
-        { x: 29, y: 12 },
-        { x: 15, y: 22.5 },
-        { x: 22, y: 22.5 },
+        { x: 0.2, y: 15 },
+        { x: 1, y: 25 },
+        { x: 45.4, y: 3 },
+        { x: 45.3, y: 15 },
+        { x: 45.2, y: 26 },
+        { x: 14, y: 32.5 },
+        { x: 35, y: 32.5 },
       ].map((p, i) => (
         <Tree key={i} x={cx(p.x)} y={cy(p.y)} />
       ))}
-      <g transform={`translate(${cx(8)} ${cy(10.7)})`}>
-        <rect x="-7" y="-12" width="14" height="14" rx="3" fill="#7e9aa4" />
-        <text
-          x="0"
-          y="-2"
-          fill="#fcfcf1"
-          fontSize="11"
-          fontWeight="700"
-          fontFamily="sans-serif"
-          textAnchor="middle"
-        >
-          P
-        </text>
-        <path d="M0 2v8" stroke="#91a48c" strokeWidth="2" />
-      </g>
       {grid.flatMap((row, y) =>
-        row.map((tile, x) => {
-          if (tile.kind === "crossing")
-            return (
-              <g
-                key={`cross-${x}-${y}`}
-                transform={`translate(${cx(x)} ${cy(y)})`}
-              >
-                <Crossing vertical={tile.rotation % 2 === 1} />
-              </g>
-            );
-          if (tile.kind === "gate" || tile.kind === "entry")
-            return (
-              <g
-                key={`gate-${x}-${y}`}
-                transform={`translate(${cx(x)} ${cy(y)})`}
-              >
-                <Barrier
-                  entry={tile.kind === "entry"}
-                  rotation={tile.rotation}
-                  open={state.cars.some(
-                    (car) =>
-                      car.phase !== "shopping" &&
-                      Math.hypot(
-                        positionOnPath(car).x - x,
-                        positionOnPath(car).y - y,
-                      ) < 1.6,
-                  )}
-                />
-              </g>
-            );
-          return null;
-        }),
+        row.map((tile, x) =>
+          tile.kind === "crossing" ? (
+            <g key={`${x}-${y}`} transform={`translate(${cx(x)} ${cy(y)})`}>
+              <Crossing vertical={tile.rotation % 2 === 1} />
+            </g>
+          ) : tile.kind === "gate" || tile.kind === "entry" ? (
+            <g key={`${x}-${y}`} transform={`translate(${cx(x)} ${cy(y)})`}>
+              <Barrier
+                entry={tile.kind === "entry"}
+                rotation={tile.rotation}
+                open={state.cars.some(
+                  (car) =>
+                    car.phase !== "shopping" &&
+                    Math.hypot(
+                      positionOnPath(car).x - x,
+                      positionOnPath(car).y - y,
+                    ) < 1.6,
+                )}
+              />
+            </g>
+          ) : null,
+        ),
       )}
       <g pointerEvents="none">
         {state.cars.map((car) => {
           const p = positionOnPath(car);
-          const angle =
-            car.phase === "shopping"
-              ? grid[car.spot.y]![car.spot.x]!.rotation * 90
-              : p.angle;
-          const offsetX =
-            car.phase === "shopping"
-              ? 0
-              : Math.cos((p.angle * Math.PI) / 180) * 4;
-          const offsetY =
-            car.phase === "shopping"
-              ? 0
-              : Math.sin((p.angle * Math.PI) / 180) * 4;
+          const parked = car.phase === "shopping";
+          const angle = parked
+            ? grid[car.spot.y]![car.spot.x]!.rotation * 90
+            : p.angle;
           return (
             <g
               key={car.id}
               style={{
-                transform: `translate(${cx(p.x) + offsetX}px, ${cy(p.y) + offsetY}px) rotate(${angle}deg)`,
+                transform: `translate(${cx(p.x) + (parked ? 0 : Math.cos((p.angle * Math.PI) / 180) * 4)}px, ${cy(p.y) + (parked ? 0 : Math.sin((p.angle * Math.PI) / 180) * 4)}px) rotate(${angle}deg)`,
                 transition: "transform 240ms linear",
               }}
             >
               <CarSprite color={car.color} />
-              {car.paid && car.progress < car.path.length - 7 && (
-                <circle cy="-22" r="3" fill="#91b682" />
-              )}
             </g>
           );
         })}
         {state.cars.map((car) => (
-          <Pedestrian key={`person-${car.id}`} car={car} grid={grid} />
+          <Pedestrian key={car.id} car={car} grid={grid} />
         ))}
       </g>
       {(gridVisible || tool !== "select") && (
         <rect
-          x={ORIGIN.x}
-          y={ORIGIN.y}
-          width={COLS * CELL}
-          height={ROWS * CELL}
+          x={ORIGIN.x + BUILD_BOUNDS.left * CELL}
+          y={ORIGIN.y + BUILD_BOUNDS.top * CELL}
+          width={(BUILD_BOUNDS.right - BUILD_BOUNDS.left) * CELL}
+          height={(BUILD_BOUNDS.bottom - BUILD_BOUNDS.top) * CELL}
           fill="url(#build-grid)"
           pointerEvents="none"
-          opacity={gridVisible ? 0.8 : 0.4}
+          opacity={gridVisible ? 0.9 : 0.45}
+        />
+      )}
+      {selectedBounds && (
+        <rect
+          x={ORIGIN.x + selectedBounds.left * CELL - 2}
+          y={ORIGIN.y + selectedBounds.top * CELL - 2}
+          width={(selectedBounds.right - selectedBounds.left + 1) * CELL + 4}
+          height={(selectedBounds.bottom - selectedBounds.top + 1) * CELL + 4}
+          rx="4"
+          fill="#487c5b"
+          fillOpacity=".12"
+          stroke="#3d7654"
+          strokeWidth="2.2"
+          pointerEvents="none"
         />
       )}
       {hover && tool !== "select" && (
@@ -941,36 +979,43 @@ export function GameMap({
             width={tool === "roundabout" ? 96 : 32}
             height={tool === "roundabout" ? 96 : 32}
             rx="3"
-            fill={ghostValid ? "#7da883" : "#c77967"}
-            fillOpacity="0.35"
-            stroke={ghostValid ? "#487e59" : "#ae6656"}
+            fill={ghost?.error ? "#c77967" : "#7da883"}
+            fillOpacity=".35"
+            stroke={ghost?.error ? "#a65f50" : "#487e59"}
             strokeWidth="1.5"
           />
           {tool === "parking" && (
-            <g opacity="0.65">
+            <g opacity=".7">
               <ParkingBay tile={{ kind: "parking", rotation }} />
-              <path
-                d="M0-13v-6m-3 3 3-3 3 3"
-                fill="none"
-                stroke="#487e59"
-                strokeWidth="2"
-                transform={`rotate(${rotation * 90})`}
-              />
             </g>
           )}
-          {tool === "tree" && (
-            <g opacity="0.7">
-              <Tree x={0} y={0} />
+          {["lamp", "bench", "flowers"].includes(tool) && (
+            <g transform={`rotate(${rotation * 90})`} opacity=".8">
+              <PropSprite kind={tool} />
             </g>
           )}
+          {tool === "tree" && <Tree x={0} y={0} />}
           {tool === "crossing" && <Crossing vertical={rotation % 2 === 1} />}
-          {(tool === "gate" || tool === "entry") && (
+          {(tool === "entry" || tool === "gate") && (
             <Barrier entry={tool === "entry"} rotation={rotation} />
           )}
           {tool === "erase" && (
-            <path d="m-5-5 10 10M5-5-5 5" stroke="#ae6656" strokeWidth="2" />
+            <path d="m-5-5 10 10M5-5-5 5" stroke="#a65f50" strokeWidth="2" />
           )}
         </g>
+      )}
+      {hover && tool === "select" && !selection && (
+        <rect
+          x={ORIGIN.x + hover.x * CELL}
+          y={ORIGIN.y + hover.y * CELL}
+          width={CELL}
+          height={CELL}
+          fill="#6e8d5f"
+          fillOpacity=".12"
+          stroke="#8ba575"
+          strokeWidth="1"
+          pointerEvents="none"
+        />
       )}
     </svg>
   );
