@@ -13,6 +13,10 @@ import {
   findPath,
   inBounds,
   isRoad,
+  neighbors,
+  roadProfile,
+  roadWidth,
+  roadDirection,
   parkingConnectionMessage,
   positionOnPath,
   type Car,
@@ -21,8 +25,10 @@ import {
   type Tile,
   type ParkingConnection,
   type infrastructure,
+  type TollPayment as Payment,
 } from "@/game/engine";
-import { LEVELS, type Tool } from "@/game/catalog";
+import { LEVELS, ROAD_TYPES, type Tool, type RoadType } from "@/game/catalog";
+import { TollPayment } from "./toll-payment";
 
 const cx = (x: number) => ORIGIN.x + x * CELL + CELL / 2;
 const cy = (y: number) => ORIGIN.y + y * CELL + CELL / 2;
@@ -164,6 +170,38 @@ function Crossing({ vertical }: { vertical: boolean }) {
         />
       ))}
       <path d="M-15-15h30M-15 15h30" stroke="#e9d396" strokeWidth="2" />
+    </g>
+  );
+}
+
+function RoadFlow({ tile }: { tile: Tile }) {
+  const profile = roadProfile(tile);
+  if (!profile.oneWay) return null;
+  return (
+    <g transform={`rotate(${roadDirection(tile) * 90})`} pointerEvents="none">
+      {profile.lanes > 1 && (
+        <path
+          d="M0-15v30"
+          stroke="#d0d9c3"
+          strokeWidth="1"
+          strokeDasharray="4 5"
+        />
+      )}
+      {(profile.lanes === 1
+        ? [0]
+        : [-profile.width / 4, profile.width / 4]
+      ).map((offset) => (
+        <path
+          key={offset}
+          d="M0 7V-7m-4 4 4-4 4 4"
+          transform={`translate(${offset} 0)`}
+          fill="none"
+          stroke="#98ad82"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
     </g>
   );
 }
@@ -479,12 +517,6 @@ function MapTile({
         <circle r="25" fill="#dbe5c7" stroke="#b7c7a2" strokeWidth="2" />
         <circle r="16" fill="#c1d3a8" />
         <Tree x={0} y={0} small />
-        <path
-          d="M-36-14q-5 13 0 22m-3-3 3 3 3-3M36 14q5-13 0-22m3 3-3-3-3 3"
-          stroke="#98ab80"
-          fill="none"
-          strokeWidth="1.5"
-        />
       </g>
     );
   return null;
@@ -559,9 +591,12 @@ export function PropSprite({ kind }: { kind: string }) {
 
 export interface GameMapProps {
   state: ParkingState;
+  payments: Payment[];
+  onDismissPayment: (carId: number) => void;
   connections: ReturnType<typeof infrastructure>;
   tool: Tool;
   rotation: number;
+  roadType: RoadType;
   gridVisible: boolean;
   zoom: number;
   pan: Point;
@@ -573,9 +608,12 @@ export interface GameMapProps {
 
 export function GameMap({
   state,
+  payments,
+  onDismissPayment,
   connections,
   tool,
   rotation,
+  roadType,
   gridVisible,
   zoom,
   pan,
@@ -634,31 +672,38 @@ export function GameMap({
   const viewWidth = size.width / scale;
   const viewHeight = size.height / scale;
   const roadPaths = useMemo(() => {
-    const collect = (publicOnly: boolean) => {
-      const segments: string[] = [];
-      grid.forEach((row, y) =>
-        row.forEach((tile, x) => {
-          if (!isRoad(tile) || (publicOnly ? !tile.fixed : tile.fixed)) return;
-          segments.push(`M${cx(x)} ${cy(y)}h.01`);
-          if (
-            isRoad(grid[y]?.[x + 1]) &&
-            (!publicOnly || grid[y]![x + 1]!.fixed)
-          )
-            segments.push(`M${cx(x)} ${cy(y)}H${cx(x + 1)}`);
-          if (
-            isRoad(grid[y + 1]?.[x]) &&
-            (!publicOnly || grid[y + 1]![x]!.fixed)
-          )
-            segments.push(`M${cx(x)} ${cy(y)}V${cy(y + 1)}`);
-        }),
-      );
-      return segments.join(" ");
+    const surfaces = new Map<number, string[]>();
+    const privateLines: string[] = [],
+      publicLines: string[] = [];
+    const add = (width: number, path: string) => {
+      if (!surfaces.has(width)) surfaces.set(width, []);
+      surfaces.get(width)!.push(path);
     };
+    grid.forEach((row, y) =>
+      row.forEach((tile, x) => {
+        if (!isRoad(tile)) return;
+        const width = roadWidth(tile);
+        add(width, `M${cx(x)} ${cy(y)}h.01`);
+        for (const next of neighbors({ x, y })) {
+          const adjacent = grid[next.y]![next.x]!;
+          if (!isRoad(adjacent)) continue;
+          const segment = `M${cx(x)} ${cy(y)}L${(cx(x) + cx(next.x)) / 2} ${(cy(y) + cy(next.y)) / 2}`;
+          add(width, segment);
+          if (!roadProfile(tile).oneWay && !roadProfile(adjacent).oneWay)
+            (tile.fixed ? publicLines : privateLines).push(segment);
+        }
+      }),
+    );
+    const outside = `M${cx(3)} -5000V${cy(0)} M${cx(3)} ${cy(ROWS - 1)}V${WORLD_HEIGHT + 5000} M-5000 ${cy(30)}H${cx(0)} M${cx(COLS - 1)} ${cy(30)}H${WORLD_WIDTH + 5000}`;
+    add(48, outside);
+    publicLines.push(outside);
     return {
-      all: collect(false),
-      public:
-        collect(true) +
-        ` M${cx(3)} -5000V${cy(0)} M${cx(3)} ${cy(ROWS - 1)}V${WORLD_HEIGHT + 5000} M-5000 ${cy(30)}H${cx(0)} M${cx(COLS - 1)} ${cy(30)}H${WORLD_WIDTH + 5000}`,
+      layers: [...surfaces].map(([width, segments]) => ({
+        width,
+        path: segments.join(" "),
+      })),
+      privateLines: privateLines.join(" "),
+      publicLines: publicLines.join(" "),
     };
   }, [grid]);
   const pointAt = (event: {
@@ -676,11 +721,11 @@ export function GameMap({
     };
     return inBounds(point) ? point : null;
   };
-  const paintOne = (p: Point) => {
+  const paintOne = (p: Point, angle = rotation) => {
     const id = `${p.x},${p.y}`;
     if (!visited.current.has(id)) {
       visited.current.add(id);
-      onPlace(tool, p, rotation);
+      onPlace(tool, p, angle);
     }
   };
   const paint = (p: Point) => {
@@ -688,17 +733,33 @@ export function GameMap({
     if (previous) {
       let x = previous.x,
         y = previous.y;
+      let from = previous;
+      const advance = (next: Point) => {
+        const angle =
+          next.x > from.x ? 1 : next.x < from.x ? 3 : next.y > from.y ? 2 : 0;
+        if (tool === "road" && ROAD_TYPES[roadType].oneWay) {
+          onPlace(tool, from, angle);
+          paintOne(next, angle);
+        } else paintOne(next);
+        from = next;
+      };
       while (x !== p.x || y !== p.y) {
-        if (x !== p.x) x += Math.sign(p.x - x);
-        paintOne({ x, y });
-        if (y !== p.y) y += Math.sign(p.y - y);
-        paintOne({ x, y });
+        if (x !== p.x) {
+          x += Math.sign(p.x - x);
+          advance({ x, y });
+        }
+        if (y !== p.y) {
+          y += Math.sign(p.y - y);
+          advance({ x, y });
+        }
       }
     } else paintOne(p);
     lastPaint.current = p;
   };
   const ghost =
-    hover && tool !== "select" ? build(state, tool, hover, rotation) : null;
+    hover && tool !== "select"
+      ? build(state, tool, hover, rotation, roadType)
+      : null;
   const selectedTile = selection ? grid[selection.y]?.[selection.x] : undefined;
   const selectedCells = selection
     ? selectedTile?.group
@@ -900,50 +961,54 @@ export function GameMap({
         strokeDasharray="6 7"
         strokeWidth="1.5"
       />
+      {roadPaths.layers.map((layer) => (
+        <path
+          key={`edge-${layer.width}`}
+          d={layer.path}
+          stroke="#b2bea5"
+          strokeWidth={layer.width + 4}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+      {roadPaths.layers.map((layer) => (
+        <path
+          key={`road-${layer.width}`}
+          d={layer.path}
+          stroke="#faf9ef"
+          strokeWidth={layer.width}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
       <path
-        d={roadPaths.public}
-        stroke="#b5c0a7"
-        strokeWidth="53"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <path
-        d={roadPaths.all}
-        stroke="#b2bea5"
-        strokeWidth="36"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d={roadPaths.public}
-        stroke="#f8f7ed"
-        strokeWidth="48"
-        fill="none"
-        strokeLinecap="round"
-      />
-      <path
-        d={roadPaths.all}
-        stroke="#faf9ef"
-        strokeWidth="32"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d={roadPaths.all}
+        d={roadPaths.privateLines}
         stroke="#c0c9b1"
         strokeWidth="1"
         strokeDasharray="4 9"
         fill="none"
       />
       <path
-        d={roadPaths.public}
+        d={roadPaths.publicLines}
         stroke="#c9b97b"
         strokeWidth="1.4"
         strokeDasharray="10 9"
         fill="none"
       />
+      {grid.flatMap((row, y) =>
+        row.map((tile, x) =>
+          tile.kind === "road" && roadProfile(tile).oneWay ? (
+            <g
+              key={`flow-${x}-${y}`}
+              transform={`translate(${cx(x)} ${cy(y)})`}
+            >
+              <RoadFlow tile={tile} />
+            </g>
+          ) : null,
+        ),
+      )}
       {grid.flatMap((row, y) =>
         row.map((tile, x) =>
           tile.kind === "path" ? (
@@ -1075,16 +1140,50 @@ export function GameMap({
           pointerEvents="none"
         >
           <rect
-            x={tool === "roundabout" ? -48 : -16}
-            y={tool === "roundabout" ? -48 : -16}
-            width={tool === "roundabout" ? 96 : 32}
-            height={tool === "roundabout" ? 96 : 32}
+            x={
+              tool === "roundabout"
+                ? -48
+                : tool === "road"
+                  ? -ROAD_TYPES[roadType].width / 2
+                  : -16
+            }
+            y={
+              tool === "roundabout"
+                ? -48
+                : tool === "road"
+                  ? -ROAD_TYPES[roadType].width / 2
+                  : -16
+            }
+            width={
+              tool === "roundabout"
+                ? 96
+                : tool === "road"
+                  ? ROAD_TYPES[roadType].width
+                  : 32
+            }
+            height={
+              tool === "roundabout"
+                ? 96
+                : tool === "road"
+                  ? ROAD_TYPES[roadType].width
+                  : 32
+            }
             rx="3"
             fill={ghost?.error ? "#c77967" : "#7da883"}
             fillOpacity=".35"
             stroke={ghost?.error ? "#a65f50" : "#487e59"}
             strokeWidth="1.5"
           />
+          {tool === "road" && (
+            <RoadFlow
+              tile={{
+                kind: "road",
+                rotation,
+                roadType,
+                roadDirection: rotation,
+              }}
+            />
+          )}
           {tool === "parking" && (
             <g opacity=".7">
               <ParkingBay tile={{ kind: "parking", rotation }} />
@@ -1118,6 +1217,22 @@ export function GameMap({
           pointerEvents="none"
         />
       )}
+      {payments.map((payment, index) => (
+        <TollPayment
+          key={payment.carId}
+          payment={payment}
+          stack={
+            payments
+              .slice(0, index)
+              .filter(
+                (other) =>
+                  other.point.x === payment.point.x &&
+                  other.point.y === payment.point.y,
+              ).length
+          }
+          onDismiss={onDismissPayment}
+        />
+      ))}
     </svg>
   );
 }

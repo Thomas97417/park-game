@@ -8,7 +8,14 @@ import {
   type Point,
   type Car,
 } from "@my-better-t-app/backend/convex/lib/parkingState";
-import { CAR_COLORS, LEVELS, TOOLS, type Tool } from "./catalog";
+import {
+  CAR_COLORS,
+  LEVELS,
+  ROAD_TYPES,
+  TOOLS,
+  type Tool,
+  type RoadType,
+} from "./catalog";
 
 export { COLS, ROWS, BUILD_BOUNDS };
 export type { ParkingState, Tile, Point, Car };
@@ -25,6 +32,20 @@ export const inBounds = (p: Point) =>
   p.x >= 0 && p.x < COLS && p.y >= 0 && p.y < ROWS;
 export const isRoad = (tile?: Tile) =>
   !!tile && ["road", "crossing", "entry", "gate"].includes(tile.kind);
+export const roadProfile = (tile?: Tile) =>
+  ROAD_TYPES[tile?.roadType ?? "standard"];
+export const roadWidth = (tile?: Tile) =>
+  tile?.fixed && !tile.roadType ? 48 : roadProfile(tile).width;
+export const roadDirection = (tile: Tile) =>
+  tile.roadDirection ?? tile.rotation;
+export function directionVector(rotation: number): Point {
+  return [
+    { x: 0, y: -1 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+  ][rotation]!;
+}
 export const neighbors = (p: Point): Point[] =>
   [
     { x: p.x, y: p.y - 1 },
@@ -59,7 +80,28 @@ export function canDriveBetween(
   to: Point,
 ): boolean {
   if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) !== 1) return false;
-  const group = grid[from.y]?.[from.x]?.group;
+  const source = grid[from.y]?.[from.x];
+  const destination = grid[to.y]?.[to.x];
+  // Parking maneuvers may turn across the lane to enter or leave a bay.
+  if (source?.kind === "parking" || destination?.kind === "parking")
+    return true;
+  const movement = { x: to.x - from.x, y: to.y - from.y };
+  if (source && roadProfile(source).oneWay) {
+    const direction = directionVector(roadDirection(source));
+    const dot = movement.x * direction.x + movement.y * direction.y;
+    if (dot < 0) return false;
+    // Allow a turn at a junction while a continuous one-way corridor keeps its heading.
+    if (
+      dot === 0 &&
+      !isRoad(grid[from.y + direction.y]?.[from.x + direction.x])
+    )
+      return false;
+  }
+  if (destination && roadProfile(destination).oneWay) {
+    const direction = directionVector(roadDirection(destination));
+    if (movement.x * direction.x + movement.y * direction.y < 0) return false;
+  }
+  const group = source?.group;
   if (!group || grid[to.y]?.[to.x]?.group !== group) return true;
   for (let y = from.y - 1; y <= from.y + 1; y++) {
     for (let x = from.x - 1; x <= from.x + 1; x++) {
@@ -152,14 +194,15 @@ export function storeDoor(grid: Tile[][]): Point {
 
 function reachableTiles(
   grid: Tile[][],
-  start: Point,
+  start: Point | Point[],
   accepts: (tile?: Tile) => boolean,
   canStep?: (from: Point, to: Point) => boolean,
 ): Set<string> {
   const visited = new Set<string>();
-  if (!accepts(grid[start.y]?.[start.x])) return visited;
-  const queue = [start];
-  visited.add(key(start));
+  const queue = (Array.isArray(start) ? start : [start]).filter((p) =>
+    accepts(grid[p.y]?.[p.x]),
+  );
+  for (const point of queue) visited.add(key(point));
   for (let i = 0; i < queue.length; i++) {
     for (const next of neighbors(queue[i]!)) {
       if (
@@ -180,8 +223,9 @@ export interface ParkingConnection {
   access: Point;
   roadAccess: boolean;
   streetConnected: boolean;
+  exitConnected: boolean;
   storeConnected: boolean;
-  issue: "orientation" | "road" | "street" | "store" | null;
+  issue: "orientation" | "road" | "street" | "exit" | "store" | null;
 }
 
 export function parkingConnectionMessage(connection: ParkingConnection) {
@@ -191,7 +235,9 @@ export function parkingConnectionMessage(connection: ParkingConnection) {
     case "road":
       return "Tracez une route devant l’ouverture de la place.";
     case "street":
-      return "Reliez la route de cette place à la rue publique.";
+      return "Reliez cette place à une entrée et à la rue, en respectant le sens des routes.";
+    case "exit":
+      return "Prévoyez un trajet de retour vers la sortie, sans route à contre-sens.";
     case "store":
       return "Reliez cette place au parvis du magasin par une route ou un passage piéton.";
     default:
@@ -213,17 +259,30 @@ export function infrastructure(grid: Tile[][]) {
   const gates = placedGates.filter(
     (p) => reachable.has(key(p)) && exits.has(key(p)),
   );
+  const fromEntries = entries.length
+    ? reachableTiles(grid, entries, isRoad, (from, to) =>
+        canDriveBetween(grid, from, to),
+      )
+    : reachable;
+  const toGates = gates.length
+    ? reachableTiles(grid, gates, isRoad, (from, to) =>
+        canDriveBetween(grid, to, from),
+      )
+    : exits;
   const spots = tilesOf(grid, "parking");
   const spotConnections: ParkingConnection[] = spots.map((spot) => {
     const access = parkingAccess(spot, grid[spot.y]![spot.x]!.rotation);
     const roadAccess = isRoad(grid[access.y]?.[access.x]);
-    const streetConnected = roadAccess && reachable.has(key(access));
+    const streetConnected =
+      roadAccess && reachable.has(key(access)) && fromEntries.has(key(access));
+    const exitConnected = roadAccess && toGates.has(key(access));
     const storeConnected = pedestrians.has(key(spot));
     return {
       point: spot,
       access,
       roadAccess,
       streetConnected,
+      exitConnected,
       storeConnected,
       issue: !roadAccess
         ? neighbors(spot).some((p) => isRoad(grid[p.y]?.[p.x]))
@@ -231,9 +290,11 @@ export function infrastructure(grid: Tile[][]) {
           : "road"
         : !streetConnected
           ? "street"
-          : !storeConnected
-            ? "store"
-            : null,
+          : !exitConnected
+            ? "exit"
+            : !storeConnected
+              ? "store"
+              : null,
     };
   });
   // Detect bays independently of entrance/exit equipment. Opening checks both.
@@ -260,6 +321,7 @@ export function infrastructure(grid: Tile[][]) {
 /** Shared by the opening guard and its UI, including keyboard activation. */
 export function openingStatus(info: ReturnType<typeof infrastructure>) {
   const streetSpots = info.spotConnections.filter((p) => p.streetConnected);
+  const shopSpots = streetSpots.filter((p) => p.storeConnected);
   const checks = [
     {
       id: "entry",
@@ -301,15 +363,25 @@ export function openingStatus(info: ReturnType<typeof infrastructure>) {
     {
       id: "store",
       label: "Accès piéton au magasin",
-      done: info.usable.length > 0,
-      detail: info.usable.length
-        ? `${info.usable.length} / ${info.spots.length} places reliées au magasin`
+      done: shopSpots.length > 0,
+      detail: shopSpots.length
+        ? `${shopSpots.length} / ${info.spots.length} places reliées au magasin`
         : !streetSpots.length
           ? "Une même place doit être accessible depuis la rue et reliée au magasin."
           : "Prolongez la route des places jusqu’au parvis du magasin. Les passages piétons se posent sur la route.",
       tool: "road" as Tool,
     },
   ];
+  if (streetSpots.some((p) => !p.exitConnected))
+    checks.push({
+      id: "return",
+      label: "Retour des places vers la sortie",
+      done: info.usable.length > 0,
+      detail: info.usable.length
+        ? `${info.usable.length} places avec un trajet aller-retour`
+        : "Vérifiez le sens des routes entre les places et la sortie. Une même place doit être reliée à l’entrée, au magasin et à la sortie.",
+      tool: "road",
+    });
   return {
     checks,
     missing: checks.filter((check) => !check.done),
@@ -441,15 +513,33 @@ export function build(
   tool: Tool,
   point: Point,
   rotation: number,
+  roadType: RoadType = "standard",
 ): BuildResult {
   const fail = (error: string): BuildResult => ({ state, error });
   if (state.status === "lost")
     return fail("Ce contrat est terminé. Relancez une partie.");
   if (!inBounds(point) || tool === "select") return { state };
   const old = state.grid[point.y]![point.x]!;
-  if (tool === "road" && isRoad(old)) return { state };
+  const replacingRoad = tool === "road" && isRoad(old);
+  if (
+    replacingRoad &&
+    (old.fixed ||
+      old.group ||
+      ((old.roadType ?? "standard") === roadType &&
+        (!ROAD_TYPES[roadType].oneWay || roadDirection(old) === rotation)))
+  )
+    return { state };
   if (old.fixed)
     return fail("Ce terrain appartient à la ville ou au commerce.");
+  if (
+    replacingRoad &&
+    state.cars.some((car) =>
+      car.path
+        .slice(Math.floor(car.progress), Math.floor(car.progress) + 2)
+        .some((p) => same(p, point)),
+    )
+  )
+    return fail("Un client utilise cette route. Attendez son passage.");
   const grid = state.grid.map((row) => row.map((tile) => ({ ...tile })));
   let delta = 0;
   let expenseDelta = 0;
@@ -473,20 +563,26 @@ export function build(
     )
       return fail("Un client utilise cet aménagement. Attendez son départ.");
     for (const cell of cells)
-      grid[cell.y]![cell.x] = {
-        kind: ["crossing", "entry", "gate"].includes(old.kind)
-          ? "road"
-          : "grass",
-        rotation: 0,
-      };
+      grid[cell.y]![cell.x] = ["crossing", "entry", "gate"].includes(old.kind)
+        ? { ...old, kind: "road", rotation: old.roadDirection ?? 0 }
+        : { kind: "grass", rotation: 0 };
     delta = Math.round(
-      (TOOLS.find((t) => t.id === (old.group ? "roundabout" : old.kind))
-        ?.price ?? 35) * 0.4,
+      (old.kind === "road" && !old.group
+        ? roadProfile(old).price
+        : (TOOLS.find((t) => t.id === (old.group ? "roundabout" : old.kind))
+            ?.price ?? 35)) * 0.4,
     );
     expenseDelta = -delta;
   } else {
-    const price = TOOLS.find((t) => t.id === tool)!.price;
-    if (state.balance < price)
+    const price =
+      tool === "road"
+        ? Math.max(
+            0,
+            ROAD_TYPES[roadType].price -
+              (replacingRoad ? roadProfile(old).price : 0),
+          )
+        : TOOLS.find((t) => t.id === tool)!.price;
+    if (price > 0 && state.balance < price)
       return fail("Trésorerie insuffisante pour cet aménagement.");
     if (["crossing", "entry", "gate"].includes(tool)) {
       if (!isRoad(old) || old.kind !== "road" || old.group)
@@ -495,7 +591,8 @@ export function build(
       old.kind !== "grass" &&
       !(
         tool === "road" &&
-        ["tree", "lamp", "bench", "flowers"].includes(old.kind)
+        (replacingRoad ||
+          ["tree", "lamp", "bench", "flowers"].includes(old.kind))
       )
     )
       return fail("Cette case est déjà occupée.");
@@ -520,7 +617,21 @@ export function build(
           rotation: 0,
           group,
         };
-    } else grid[point.y]![point.x] = { kind: tool, rotation };
+    } else if (tool === "road")
+      grid[point.y]![point.x] = {
+        ...(replacingRoad ? old : {}),
+        kind: replacingRoad ? old.kind : "road",
+        rotation:
+          replacingRoad && old.kind !== "road" ? old.rotation : rotation,
+        roadType,
+        roadDirection: rotation,
+      };
+    else
+      grid[point.y]![point.x] = {
+        ...(["crossing", "entry", "gate"].includes(tool) ? old : {}),
+        kind: tool,
+        rotation,
+      };
     delta = -price;
     expenseDelta = price;
   }
@@ -538,7 +649,10 @@ export function build(
 export const canRotate = (tile?: Tile) =>
   !!tile &&
   !tile.fixed &&
-  ["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(tile.kind);
+  (["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(
+    tile.kind,
+  ) ||
+    (tile.kind === "road" && !tile.group && roadProfile(tile).oneWay));
 
 export function rotatePlaced(state: ParkingState, point: Point): BuildResult {
   if (!inBounds(point) || state.status !== "playing") return { state };
@@ -559,7 +673,14 @@ export function rotatePlaced(state: ParkingState, point: Point): BuildResult {
       error: "Un client utilise cet aménagement. Attendez son départ.",
     };
   const grid = state.grid.map((row) => row.slice());
-  grid[point.y]![point.x] = { ...tile, rotation: (tile.rotation + 1) % 4 };
+  grid[point.y]![point.x] =
+    tile.kind === "road"
+      ? {
+          ...tile,
+          rotation: (roadDirection(tile) + 1) % 4,
+          roadDirection: (roadDirection(tile) + 1) % 4,
+        }
+      : { ...tile, rotation: (tile.rotation + 1) % 4 };
   return {
     state: { ...state, grid },
     undo: { grid: state.grid, delta: 0, expenseDelta: 0 },
@@ -598,7 +719,12 @@ export function setBarrierKind(
   };
 }
 
-function lanePoint(grid: Tile[][], path: Point[], index: number): Point {
+function lanePoint(
+  grid: Tile[][],
+  path: Point[],
+  index: number,
+  carId: number,
+): Point {
   const point = path[index]!;
   const tile = grid[point.y]?.[point.x];
   if (!isRoad(tile)) return point;
@@ -611,7 +737,12 @@ function lanePoint(grid: Tile[][], path: Point[], index: number): Point {
     ? incoming
     : { x: after.x - point.x, y: after.y - point.y };
   const dot = incoming.x * outgoing.x + incoming.y * outgoing.y;
-  const offset = (tile!.fixed ? 12 : 8) / CELL;
+  const profile = roadProfile(tile);
+  const offset = profile.oneWay
+    ? profile.lanes === 1
+      ? 0
+      : ((carId % 2 === 0 ? 1 : -1) * profile.width) / 4 / CELL
+    : roadWidth(tile) / 4 / CELL;
   // Intersect the right-hand lane on both sides of a corner, keeping positions continuous.
   const normal =
     dot === -1
@@ -633,14 +764,19 @@ export function positionOnPath(
 } {
   const index = Math.min(Math.floor(car.progress), car.path.length - 1);
   const a = grid
-    ? lanePoint(grid, car.path, index)
+    ? lanePoint(grid, car.path, index, car.id)
     : (car.path[index] ?? car.spot);
   const b = grid
-    ? lanePoint(grid, car.path, Math.min(index + 1, car.path.length - 1))
+    ? lanePoint(
+        grid,
+        car.path,
+        Math.min(index + 1, car.path.length - 1),
+        car.id,
+      )
     : (car.path[index + 1] ?? a);
   const progress = car.progress - index;
   const previous = grid
-    ? lanePoint(grid, car.path, Math.max(0, index - 1))
+    ? lanePoint(grid, car.path, Math.max(0, index - 1), car.id)
     : (car.path[Math.max(0, index - 1)] ?? a);
   const direction = same(a, b)
     ? { x: a.x - previous.x, y: a.y - previous.y }
@@ -652,7 +788,7 @@ export function positionOnPath(
   };
 }
 
-/** Preserve an in-progress segment while replacing old routes that used a roundabout backwards. */
+/** Preserve the current segment while replacing routes invalidated by traffic directions. */
 function repairCarRoute(grid: Tile[][], car: Car): Car {
   if (car.phase === "shopping") return { ...car };
   const anchorIndex = Math.ceil(car.progress);
@@ -701,10 +837,40 @@ function exitPath(grid: Tile[][], car: Car, gates: Point[]): Point[] | null {
   return null;
 }
 
+export interface TollPayment {
+  carId: number;
+  point: Point;
+  amount: number;
+}
+
+export const UPKEEP_INTERVAL = 30;
+export const UPKEEP_PER_SPACE = 0.15;
+
+export function parkingUpkeep(
+  state: ParkingState,
+  spaces = tilesOf(state.grid, "parking").length,
+) {
+  const base = LEVELS[state.level]!.upkeep;
+  const parking = Math.round(spaces * UPKEEP_PER_SPACE * 100) / 100;
+  return {
+    base,
+    spaces,
+    perSpace: UPKEEP_PER_SPACE,
+    parking,
+    amount: Math.round((base + parking) * 100) / 100,
+    interval: UPKEEP_INTERVAL,
+    nextIn: Math.max(0, UPKEEP_INTERVAL - state.upkeepTimer),
+  };
+}
+
+export type UpkeepCharge = ReturnType<typeof parkingUpkeep>;
+
 export function step(
   state: ParkingState,
   dt: number,
   random: () => number = Math.random,
+  onPayment?: (payment: TollPayment) => void,
+  onUpkeep?: (charge: UpkeepCharge) => void,
 ): ParkingState {
   if (state.status !== "playing" || !state.opened) return state;
   const info = infrastructure(state.grid);
@@ -760,6 +926,10 @@ export function step(
       (p) =>
         p.id !== car.id &&
         Math.cos(((p.angle - next.angle) * Math.PI) / 180) > 0.5 &&
+        Math.abs(
+          (p.x - next.x) * Math.cos((next.angle * Math.PI) / 180) +
+            (p.y - next.y) * Math.sin((next.angle * Math.PI) / 180),
+        ) < 0.45 &&
         Math.hypot(p.x - next.x, p.y - next.y) < 0.72 &&
         Math.hypot(p.x - current.x, p.y - current.y) >
           Math.hypot(p.x - next.x, p.y - next.y),
@@ -779,12 +949,13 @@ export function step(
     if (car.phase === "leaving" && !car.paid) {
       const crossedGate = car.path
         .slice(Math.floor(previousProgress), Math.floor(nextProgress) + 1)
-        .some((p) => state.grid[p.y]![p.x]!.kind === "gate");
+        .find((p) => state.grid[p.y]![p.x]!.kind === "gate");
       if (crossedGate) {
         car.paid = true;
         balance += car.fee;
         income += car.fee;
         served++;
+        onPayment?.({ carId: car.id, point: crossedGate, amount: car.fee });
       }
     }
     if (car.progress >= car.path.length - 1) {
@@ -829,11 +1000,12 @@ export function step(
   }
 
   let upkeepTimer = state.upkeepTimer + dt;
-  if (upkeepTimer >= 30) {
+  if (upkeepTimer >= UPKEEP_INTERVAL) {
     upkeepTimer = 0;
-    const amount = level.upkeep + info.spots.length * 0.15;
-    balance -= amount;
-    expenses += amount;
+    const charge = parkingUpkeep(state, info.spots.length);
+    balance -= charge.amount;
+    expenses += charge.amount;
+    onUpkeep?.(charge);
   }
   const pressure = info.usable.length
     ? Math.max(0, (cars.length / info.usable.length - 0.85) * 35)

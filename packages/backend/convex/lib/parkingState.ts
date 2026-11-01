@@ -4,6 +4,8 @@ export const COLS = 46;
 export const ROWS = 32;
 export const SAVE_VERSION = 2;
 export const BUILD_BOUNDS = { left: 4, right: 44, top: 1, bottom: 30 } as const;
+export const roadTypes = ["standard", "oneWay", "wide", "wideOneWay"] as const;
+export type RoadType = (typeof roadTypes)[number];
 
 export const tileKinds = [
   "grass",
@@ -25,6 +27,8 @@ export const tileSchema = z.object({
   rotation: z.number().int().min(0).max(3),
   fixed: z.boolean().optional(),
   group: z.string().max(40).optional(),
+  roadType: z.enum(roadTypes).optional(),
+  roadDirection: z.number().int().min(0).max(3).optional(),
 });
 export const pointSchema = z.object({
   x: z

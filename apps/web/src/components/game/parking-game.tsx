@@ -56,7 +56,15 @@ import {
   TreeIcon,
   type GameIcon,
 } from "./game-icons";
-import { LEVELS, TILE_LABELS, TOOLS, euro, type Tool } from "@/game/catalog";
+import {
+  LEVELS,
+  ROAD_TYPES,
+  TILE_LABELS,
+  TOOLS,
+  euro,
+  type Tool,
+  type RoadType,
+} from "@/game/catalog";
 import {
   canRotate,
   clockTime,
@@ -64,10 +72,14 @@ import {
   openingStatus,
   parkingConnectionMessage,
   objectives,
+  parkingUpkeep,
   type Point,
 } from "@/game/engine";
 import { useParkingGame } from "@/game/use-parking-game";
 import { GameMap, CarSprite, Tree } from "./game-map";
+import { RoadPalette } from "./road-palette";
+import { BuildHint, BuildHintProvider } from "./build-hint";
+import { ParkingFinances } from "./parking-finances";
 
 const TOOL_ICONS: Partial<Record<Tool, GameIcon>> = {
   road: RoadIcon,
@@ -90,6 +102,8 @@ function IconButton({
   disabled = false,
   className = "",
   iconSize = 20,
+  hint,
+  hintSide = "top",
 }: {
   label: string;
   icon: GameIcon;
@@ -98,11 +112,13 @@ function IconButton({
   disabled?: boolean;
   className?: string;
   iconSize?: number;
+  hint?: string;
+  hintSide?: "top" | "left" | "right" | "bottom";
 }) {
-  return (
+  const button = (
     <button
       type="button"
-      title={label}
+      title={hint ? undefined : label}
       aria-label={label}
       aria-pressed={active}
       disabled={disabled}
@@ -111,6 +127,13 @@ function IconButton({
     >
       <Icon size={iconSize} strokeWidth={1.7} />
     </button>
+  );
+  return hint ? (
+    <BuildHint label={label} description={hint} side={hintSide}>
+      {button}
+    </BuildHint>
+  ) : (
+    button
   );
 }
 function Modal({
@@ -169,6 +192,7 @@ export function ParkingGame() {
   const { state } = game;
   const [tool, setTool] = useState<Tool>("select");
   const [rotation, setRotation] = useState(0);
+  const [roadType, setRoadType] = useState<RoadType>("standard");
   const [selection, setSelection] = useState<Point | null>(null);
   const [gridVisible, setGridVisible] = useState(false);
   const [zoom, setZoom] = useState(1.1);
@@ -192,6 +216,7 @@ export function ParkingGame() {
   const previousSpeed = useRef(0);
   const level = LEVELS[state.level];
   const info = infrastructure(state.grid);
+  const upkeep = parkingUpkeep(state, info.spots.length);
   const opening = openingStatus(info);
   const goals = objectives(state);
   const completedGoals = goals.filter((goal) => goal.done).length;
@@ -203,7 +228,10 @@ export function ParkingGame() {
     selectedTile?.kind === "entry" || selectedTile?.kind === "gate";
   const rotatable = selection
     ? canRotate(selectedTile)
-    : ["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(tool);
+    : ["parking", "crossing", "entry", "gate", "lamp", "bench"].includes(
+        tool,
+      ) ||
+      (tool === "road" && ROAD_TYPES[roadType].oneWay);
   const occupied = state.cars.filter((car) => car.phase !== "leaving").length;
   const dialogOpen = !!modal || state.status === "lost";
 
@@ -289,8 +317,8 @@ export function ParkingGame() {
       const current = openingStatus(infrastructure(game.stateRef.current.grid));
       if (!current.ready) setModal("connections");
       else game.open();
-    } else game.setSpeed((value) => (value ? 0 : 1));
-  }, [game.open, game.setSpeed, game.stateRef]);
+    } else game.setSpeed((value) => (value ? 0 : game.playbackRate));
+  }, [game.open, game.setSpeed, game.stateRef, game.playbackRate]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (
@@ -425,24 +453,24 @@ export function ParkingGame() {
         )}
         {!state.opened && "Ouvrir"}
       </button>
-      <select
-        aria-label="Vitesse de simulation"
-        title="Vitesse de simulation"
-        value={game.speed || 1}
+      <button
+        type="button"
+        aria-label={`Vitesse de simulation : ${game.playbackRate}×. Passer à ${(game.playbackRate % 3) + 1}×`}
+        title={`Vitesse : ${game.playbackRate}× · Cliquer pour ${(game.playbackRate % 3) + 1}×`}
         disabled={!state.opened || state.status === "lost"}
-        onChange={(event) => game.setSpeed(Number(event.target.value))}
-        className="h-7 w-10 shrink-0 rounded-md border-0 bg-[#edf2e4] pl-1 text-[10px] text-[#617d50] disabled:opacity-35"
+        onClick={game.cycleSpeed}
+        className="flex h-7 min-w-9 shrink-0 items-center justify-center rounded-md bg-[#edf2e4] px-2 text-[11px] font-semibold text-[#617d50] tabular-nums transition-colors hover:bg-[#dfe9d2] disabled:opacity-35"
       >
-        <option value={1}>1×</option>
-        <option value={2}>2×</option>
-        <option value={3}>3×</option>
-      </select>
+        {game.playbackRate}×
+      </button>
     </>
   );
   const menuButtons = (
     <>
       <IconButton
         label={`Objectifs (${completedGoals}/4)`}
+        hint="Suivez les objectifs du commerce et réclamez votre prime de contrat."
+        hintSide="left"
         icon={ObjectivesIcon}
         iconSize={25}
         active={modal === "objectives"}
@@ -451,6 +479,8 @@ export function ParkingGame() {
       />
       <IconButton
         label="Contrats"
+        hint="Consultez les commerces, leurs budgets et les contrats débloqués."
+        hintSide="left"
         icon={ContractsIcon}
         iconSize={25}
         onClick={() => setModal("contracts")}
@@ -458,6 +488,8 @@ export function ParkingGame() {
       />
       <IconButton
         label="Finances"
+        hint="Comprenez les dépenses d’entretien, les encaissements et votre trésorerie."
+        hintSide="left"
         icon={FinanceIcon}
         iconSize={25}
         onClick={() => setModal("stats")}
@@ -465,6 +497,8 @@ export function ParkingGame() {
       />
       <IconButton
         label="Comment jouer"
+        hint="Retrouvez les règles, les commandes et les raccourcis."
+        hintSide="left"
         icon={HelpIcon}
         iconSize={25}
         onClick={() => setModal("help")}
@@ -472,6 +506,8 @@ export function ParkingGame() {
       />
       <IconButton
         label="Paramètres"
+        hint="Réglez le son, les animations et les sauvegardes de votre partie."
+        hintSide="left"
         icon={SettingsIcon}
         iconSize={25}
         onClick={() => setModal("settings")}
@@ -481,819 +517,921 @@ export function ParkingGame() {
   );
 
   return (
-    <div
-      className={`parkside flex h-svh w-full flex-col overflow-hidden bg-[#e2e9d6] text-[#354e3b] ${reducedMotion ? "reduce-motion" : ""}`}
-    >
-      <main
-        className="relative min-h-0 flex-1"
-        aria-label="Aménagement du parking"
+    <BuildHintProvider>
+      <div
+        className={`parkside flex h-svh w-full flex-col overflow-hidden bg-[#e2e9d6] text-[#354e3b] ${reducedMotion ? "reduce-motion" : ""}`}
       >
-        <GameMap
-          state={state}
-          connections={info}
-          tool={tool}
-          rotation={rotation}
-          gridVisible={gridVisible}
-          zoom={zoom}
-          pan={pan}
-          selection={selection}
-          setPan={setPan}
-          onSelect={selectElement}
-          onPlace={(next, point, angle) => {
-            if (game.place(next, point, angle)) tone(360);
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => setModal("contracts")}
-          className="absolute top-4 left-4 flex max-w-[calc(100%_-_80px)] items-center gap-2.5 rounded-xl border border-[#e3e9d8] bg-[#fcfdf6]/95 p-2.5 pr-3.5 text-left shadow-[0_3px_14px_#3d543a0c] sm:top-5 sm:left-5"
-          aria-label={`Contrat ${state.level + 1} : ${level.name}`}
+        <main
+          className="relative min-h-0 flex-1"
+          aria-label="Aménagement du parking"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-[#3e5a46] text-[23px] font-semibold text-[#eff4e5]">
-            p.
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[10px] font-medium text-[#7d8d71]">
-              Parkside · {state.opened ? "Contrat" : "Construction"} 0
-              {state.level + 1}
-            </span>
-            <span className="mt-0.5 block truncate text-[12px] font-semibold text-[#48603e]">
-              {level.name}
-            </span>
-          </span>
-          <ChevronDown size={12} className="ml-2 shrink-0 text-[#8b9a7b]" />
-        </button>
-        <aside
-          aria-label="Menus et affichage"
-          className="absolute top-4 right-4 bottom-4 flex w-[46px] flex-col gap-3 overflow-y-auto [scrollbar-width:none] sm:top-5 sm:right-5 sm:bottom-5"
-        >
-          <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]">
-            <IconButton
-              label="Zoom avant"
-              icon={Plus}
-              onClick={() => setZoom((value) => Math.min(2.8, value + 0.2))}
-              disabled={zoom >= 2.8}
-              className="!size-9"
-            />
-            <span className="text-center text-[9px] text-[#7f906e] tabular-nums">
-              {Math.round(zoom * 100)}%
-            </span>
-            <IconButton
-              label="Zoom arrière"
-              icon={Minus}
-              onClick={() => setZoom((value) => Math.max(0.6, value - 0.2))}
-              disabled={zoom <= 0.6}
-              className="!size-9"
-            />
-            <div className="mx-2 my-1 h-px w-5 bg-[#dfe7d1]" />
-            <IconButton
-              label="Recentrer la carte"
-              icon={Expand}
-              onClick={() => {
-                setZoom(
-                  window.matchMedia("(max-width: 639px)").matches ? 1.2 : 1.1,
-                );
-                setPan({ x: 0, y: 0 });
-              }}
-              className="!size-9"
-            />
-            <IconButton
-              label="Afficher la grille (G)"
-              icon={GridIcon}
-              iconSize={24}
-              active={gridVisible}
-              onClick={() => setGridVisible((value) => !value)}
-              className="!size-9"
-            />
-          </div>
-          <nav
-            aria-label="Gestion et paramètres"
-            className="mt-auto flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]"
+          <GameMap
+            state={state}
+            payments={game.payments}
+            onDismissPayment={game.dismissPayment}
+            connections={info}
+            tool={tool}
+            rotation={rotation}
+            roadType={roadType}
+            gridVisible={gridVisible}
+            zoom={zoom}
+            pan={pan}
+            selection={selection}
+            setPan={setPan}
+            onSelect={selectElement}
+            onPlace={(next, point, angle) => {
+              if (game.place(next, point, angle, roadType)) tone(360);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setModal("contracts")}
+            className="absolute top-4 left-4 flex max-w-[calc(100%_-_80px)] items-center gap-2.5 rounded-xl border border-[#e3e9d8] bg-[#fcfdf6]/95 p-2.5 pr-3.5 text-left shadow-[0_3px_14px_#3d543a0c] sm:top-5 sm:left-5"
+            aria-label={`Contrat ${state.level + 1} : ${level.name}`}
           >
-            {menuButtons}
-            <span
-              role="status"
-              aria-label={
-                game.saveStatus === "error"
-                  ? "Sauvegarde indisponible"
-                  : game.saveStatus === "cloud"
-                    ? "Sauvegardé dans le cloud"
-                    : "Sauvegarde locale automatique"
-              }
-              title={
-                game.saveStatus === "error"
-                  ? "Sauvegarde indisponible"
-                  : game.saveStatus === "cloud"
-                    ? "Sauvegardé dans le cloud"
-                    : "Sauvegarde locale automatique"
-              }
-              className="flex h-5 items-center justify-center text-[#8ba174]"
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-[#3e5a46] text-[23px] font-semibold text-[#eff4e5]">
+              p.
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[10px] font-medium text-[#7d8d71]">
+                Parkside · {state.opened ? "Contrat" : "Construction"} 0
+                {state.level + 1}
+              </span>
+              <span className="mt-0.5 block truncate text-[12px] font-semibold text-[#48603e]">
+                {level.name}
+              </span>
+            </span>
+            <ChevronDown size={12} className="ml-2 shrink-0 text-[#8b9a7b]" />
+          </button>
+          <aside
+            aria-label="Menus et affichage"
+            className="absolute top-4 right-4 bottom-4 flex w-[46px] flex-col gap-3 overflow-y-auto [scrollbar-width:none] sm:top-5 sm:right-5 sm:bottom-5"
+          >
+            <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]">
+              <IconButton
+                label="Zoom avant"
+                hint="Rapprochez la vue pour placer et sélectionner les aménagements."
+                hintSide="left"
+                icon={Plus}
+                onClick={() => setZoom((value) => Math.min(2.8, value + 0.2))}
+                disabled={zoom >= 2.8}
+                className="!size-9"
+              />
+              <span className="text-center text-[9px] text-[#7f906e] tabular-nums">
+                {Math.round(zoom * 100)}%
+              </span>
+              <IconButton
+                label="Zoom arrière"
+                hint="Élargissez la vue pour voir l’ensemble de votre terrain."
+                hintSide="left"
+                icon={Minus}
+                onClick={() => setZoom((value) => Math.max(0.6, value - 0.2))}
+                disabled={zoom <= 0.6}
+                className="!size-9"
+              />
+              <div className="mx-2 my-1 h-px w-5 bg-[#dfe7d1]" />
+              <IconButton
+                label="Recentrer la carte"
+                hint="Retrouvez la vue d’ensemble du terrain et du commerce."
+                hintSide="left"
+                icon={Expand}
+                onClick={() => {
+                  setZoom(
+                    window.matchMedia("(max-width: 639px)").matches ? 1.2 : 1.1,
+                  );
+                  setPan({ x: 0, y: 0 });
+                }}
+                className="!size-9"
+              />
+              <IconButton
+                label="Afficher la grille (G)"
+                hint="Affichez les cases pour aligner les routes et les places."
+                hintSide="left"
+                icon={GridIcon}
+                iconSize={24}
+                active={gridVisible}
+                onClick={() => setGridVisible((value) => !value)}
+                className="!size-9"
+              />
+            </div>
+            <nav
+              aria-label="Gestion et paramètres"
+              className="mt-auto flex shrink-0 flex-col items-center gap-1 rounded-xl border border-[#e1e7d5] bg-[#fbfcf5]/95 p-1 shadow-[0_3px_14px_#3d543a0c]"
             >
-              {game.saveStatus === "error" ? (
-                <Save size={13} className="text-[#b08d67]" />
-              ) : (
-                <CheckCheck size={13} />
-              )}
-            </span>
-          </nav>
-        </aside>
-        {selection && barrierSelected && (
-          <section
-            aria-label="Barrière sélectionnée"
-            className="absolute bottom-4 left-4 w-64 max-w-[calc(100%_-_96px)] rounded-xl border border-[#d7e1cb] bg-[#fcfdf6]/95 p-3 shadow-[0_3px_14px_#3d543a0c] sm:left-5"
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-[#56704b]">
-                Fonction de la barrière
-              </h2>
+              {menuButtons}
+              <span
+                role="status"
+                aria-label={
+                  game.saveStatus === "error"
+                    ? "Sauvegarde indisponible"
+                    : game.saveStatus === "cloud"
+                      ? "Sauvegardé dans le cloud"
+                      : "Sauvegarde locale automatique"
+                }
+                title={
+                  game.saveStatus === "error"
+                    ? "Sauvegarde indisponible"
+                    : game.saveStatus === "cloud"
+                      ? "Sauvegardé dans le cloud"
+                      : "Sauvegarde locale automatique"
+                }
+                className="flex h-5 items-center justify-center text-[#8ba174]"
+              >
+                {game.saveStatus === "error" ? (
+                  <Save size={13} className="text-[#b08d67]" />
+                ) : (
+                  <CheckCheck size={13} />
+                )}
+              </span>
+            </nav>
+          </aside>
+          {selection && barrierSelected && (
+            <section
+              aria-label="Barrière sélectionnée"
+              className="absolute bottom-4 left-4 w-64 max-w-[calc(100%_-_96px)] rounded-xl border border-[#d7e1cb] bg-[#fcfdf6]/95 p-3 shadow-[0_3px_14px_#3d543a0c] sm:left-5"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-[#56704b]">
+                  Fonction de la barrière
+                </h2>
+                <button
+                  type="button"
+                  aria-label="Désélectionner la barrière"
+                  title="Désélectionner"
+                  onClick={() => selectTool("select")}
+                  className="rounded p-1 text-[#7d8e6e] hover:bg-[#edf2e4]"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div
+                role="group"
+                aria-label="Fonction de la barrière"
+                className="flex gap-1 rounded-lg bg-[#edf1e6] p-1"
+              >
+                {(["entry", "gate"] as const).map((kind) => {
+                  const active = selectedTile?.kind === kind;
+                  const Icon = kind === "entry" ? EntranceIcon : BarrierIcon;
+                  const label = kind === "entry" ? "Entrée" : "Sortie";
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      aria-label={`Transformer en ${label.toLowerCase()}`}
+                      aria-pressed={active}
+                      title={
+                        active
+                          ? `${label} actuelle`
+                          : `Transformer en ${label.toLowerCase()} · gratuit`
+                      }
+                      disabled={
+                        !!selectedTile?.fixed || state.status !== "playing"
+                      }
+                      onClick={() => {
+                        if (game.changeBarrier(selection, kind)) tone(480);
+                      }}
+                      className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${active ? (kind === "entry" ? "bg-[#dcead8] text-[#3f6747] shadow-[inset_0_0_0_1px_#91b18b]" : "bg-[#f4e5c9] text-[#8d663b] shadow-[inset_0_0_0_1px_#c8a571]") : "text-[#7b8c6c] hover:bg-[#f7f9f1]"}`}
+                    >
+                      <Icon size={23} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[11px] text-[#7b8d6c]">
+                {selectedTile?.kind === "entry"
+                  ? "Accès des clients au parking"
+                  : "Paiement du stationnement à la sortie"}
+              </p>
+            </section>
+          )}
+          {game.ready &&
+            !state.opened &&
+            !opening.ready &&
+            !barrierSelected &&
+            info.spots.length > 0 && (
               <button
                 type="button"
-                aria-label="Désélectionner la barrière"
-                title="Désélectionner"
-                onClick={() => selectTool("select")}
-                className="rounded p-1 text-[#7d8e6e] hover:bg-[#edf2e4]"
+                onClick={() => setModal("connections")}
+                className="absolute bottom-4 left-4 flex max-w-[calc(100%_-_96px)] items-center gap-3 rounded-xl border border-[#dfc9a6] bg-[#fffaf0]/95 px-3.5 py-3 text-left shadow-[0_3px_14px_#3d543a0c] sm:left-5"
+                aria-label="Voir les connexions manquantes"
               >
-                <X size={14} />
+                <TriangleAlert size={20} className="shrink-0 text-[#a87c42]" />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-[#735d3d]">
+                    {info.spots.length} places détectées · {info.usable.length}{" "}
+                    reliées
+                  </span>
+                  <span className="mt-1 block text-[11px] text-[#917449]">
+                    À vérifier : {opening.missing[0]?.label.toLowerCase()}
+                  </span>
+                </span>
+                <ArrowRight
+                  size={15}
+                  className="ml-2 shrink-0 text-[#a87c42]"
+                />
+              </button>
+            )}
+          {game.notice && (
+            <div
+              role="status"
+              className="absolute bottom-4 left-1/2 max-w-[calc(100%_-_32px)] -translate-x-1/2 rounded-xl border border-[#dce5ce] bg-[#fdfef8] px-4 py-3 text-center text-[12px] text-[#657b54] shadow-[0_4px_24px_#4c643515]"
+            >
+              {game.notice}
+            </div>
+          )}
+          {game.upkeepNotice && !game.notice && (
+            <div
+              role="status"
+              className={`absolute left-4 max-w-[calc(100%_-_96px)] sm:left-5 ${barrierSelected ? "bottom-40" : "bottom-4"}`}
+            >
+              <button
+                type="button"
+                aria-label={`Entretien du parking : moins ${euro(game.upkeepNotice.amount, 2)}. Afficher les finances`}
+                onClick={() => setModal("stats")}
+                className="flex items-center gap-3 rounded-xl border border-[#dfc9a6] bg-[#fff9ed]/95 px-3.5 py-3 text-left shadow-[0_3px_14px_#3d543a0c]"
+              >
+                <TreasuryIcon size={25} />
+                <span>
+                  <strong className="block text-sm text-[#9a7146]">
+                    −{euro(game.upkeepNotice.amount, 2)}
+                  </strong>
+                  <span className="mt-0.5 block text-[11px] text-[#9a845f]">
+                    Entretien du parking
+                  </span>
+                </span>
+                <ArrowRight size={14} className="ml-2 text-[#a58a60]" />
               </button>
             </div>
+          )}
+          {(state.debtTime > 0 || state.unhappyTime > 0) &&
+            state.status !== "lost" && (
+              <div
+                role="alert"
+                className="absolute top-24 left-1/2 max-w-[calc(100%_-_32px)] -translate-x-1/2 rounded-lg border border-[#d4b393] bg-[#fbf0df] px-4 py-2 text-[12px] text-[#94704b]"
+              >
+                Contrat en danger ·{" "}
+                {Math.ceil(45 - Math.max(state.debtTime, state.unhappyTime))} s
+                pour rétablir la situation
+              </div>
+            )}
+        </main>
+
+        <footer
+          aria-label="Construction et gestion du parking"
+          className="z-10 shrink-0 border-t border-[#cfd9c1] bg-[#fcfdf7] shadow-[0_-3px_20px_#40573608]"
+        >
+          <div className="flex h-16 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden px-3 [scrollbar-color:#bdcdae_transparent] [scrollbar-width:thin] sm:gap-3 sm:px-4">
             <div
-              role="group"
-              aria-label="Fonction de la barrière"
-              className="flex gap-1 rounded-lg bg-[#edf1e6] p-1"
+              className="flex shrink-0 items-center gap-3"
+              aria-label="Indicateurs du parking"
             >
-              {(["entry", "gate"] as const).map((kind) => {
-                const active = selectedTile?.kind === kind;
-                const Icon = kind === "entry" ? EntranceIcon : BarrierIcon;
-                const label = kind === "entry" ? "Entrée" : "Sortie";
+              <BuildHint
+                label="Trésorerie"
+                value={euro(state.balance, 2)}
+                description={`Solde disponible. Entretien : ${euro(upkeep.amount, 2)} toutes les ${upkeep.interval} s de simulation. Cliquez pour voir le détail.`}
+              >
+                <button
+                  type="button"
+                  aria-label="Trésorerie : afficher les finances"
+                  onClick={() => setModal("stats")}
+                  className="rounded-lg py-2 hover:bg-[#eff3e8]"
+                >
+                  <Metric
+                    icon={TreasuryIcon}
+                    label="Trésorerie"
+                    value={euro(state.balance)}
+                    negative={state.balance < 0}
+                  />
+                </button>
+              </BuildHint>
+              <BuildHint
+                label="Recettes"
+                value={euro(state.income, 2)}
+                description="Total encaissé aux sorties. Ce chiffre ne déduit ni les aménagements, ni l’entretien."
+              >
+                <button
+                  type="button"
+                  aria-label="Recettes : afficher les finances"
+                  onClick={() => setModal("stats")}
+                  className="rounded-lg py-2 hover:bg-[#eff3e8]"
+                >
+                  <Metric
+                    icon={IncomeIcon}
+                    label="Recettes"
+                    value={euro(state.income, state.income % 1 ? 1 : 0)}
+                  />
+                </button>
+              </BuildHint>
+              <BuildHint
+                label="Stationnement"
+                value={`${occupied} / ${info.spots.length}`}
+                description={`${info.usable.length} places reliées à la rue et au magasin. Chaque place coûte ${euro(upkeep.perSpace, 2)} d’entretien par ${upkeep.interval} s.`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setModal("connections")}
+                  aria-label={`Connexions du parking : ${info.spots.length} places détectées, ${info.usable.length} reliées`}
+                  className="rounded-lg py-2 hover:bg-[#eff3e8]"
+                >
+                  <Metric
+                    icon={CarIcon}
+                    label="Stationnement"
+                    detail={`${occupied} occupées · ${info.spots.length} places détectées · ${info.usable.length} reliées à la rue et au magasin`}
+                    value={
+                      <>
+                        {occupied}
+                        <span className="ml-0.5 text-[11px] font-normal text-[#829570]">
+                          / {info.spots.length}
+                        </span>
+                      </>
+                    }
+                  />
+                </button>
+              </BuildHint>
+              <BuildHint
+                label="Satisfaction"
+                value={`${Math.round(state.happiness)} %`}
+                description="Le prix, l’attente et les aménagements influencent les clients. Sous 35 % pendant 45 s, le contrat est perdu."
+              >
+                <button
+                  type="button"
+                  aria-label="Satisfaction : afficher les objectifs"
+                  onClick={() => setModal("objectives")}
+                  className="rounded-lg py-2 hover:bg-[#eff3e8]"
+                >
+                  <Metric
+                    icon={SatisfactionIcon}
+                    label="Satisfaction"
+                    value={`${Math.round(state.happiness)} %`}
+                    negative={state.happiness < 35}
+                  />
+                </button>
+              </BuildHint>
+            </div>
+            <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
+            <div
+              className="flex shrink-0 items-center gap-0.5"
+              aria-label="Outils de construction"
+            >
+              <IconButton
+                label="Sélectionner / déplacer (V)"
+                hint="Sélectionnez un aménagement pour le pivoter ou le supprimer. Glissez pour déplacer la carte."
+                icon={MousePointer2}
+                active={tool === "select"}
+                onClick={() => selectTool("select")}
+                className="!size-10"
+              />
+              {TOOLS.map((item) => {
+                if (item.id === "road")
+                  return (
+                    <RoadPalette
+                      key="road"
+                      type={roadType}
+                      active={tool === "road"}
+                      rotation={rotation}
+                      onDirectionChange={setRotation}
+                      onSelect={(type) => {
+                        setRoadType(type);
+                        selectTool("road");
+                      }}
+                    />
+                  );
+                const Icon = TOOL_ICONS[item.id]!;
                 return (
-                  <button
-                    key={kind}
-                    type="button"
-                    aria-label={`Transformer en ${label.toLowerCase()}`}
-                    aria-pressed={active}
-                    title={
-                      active
-                        ? `${label} actuelle`
-                        : `Transformer en ${label.toLowerCase()} · gratuit`
-                    }
-                    disabled={
-                      !!selectedTile?.fixed || state.status !== "playing"
-                    }
-                    onClick={() => {
-                      if (game.changeBarrier(selection, kind)) tone(480);
-                    }}
-                    className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs font-semibold transition-colors disabled:opacity-40 ${active ? (kind === "entry" ? "bg-[#dcead8] text-[#3f6747] shadow-[inset_0_0_0_1px_#91b18b]" : "bg-[#f4e5c9] text-[#8d663b] shadow-[inset_0_0_0_1px_#c8a571]") : "text-[#7b8c6c] hover:bg-[#f7f9f1]"}`}
+                  <BuildHint
+                    key={item.id}
+                    label={item.label}
+                    price={item.price}
+                    description={item.description}
+                    hotkey={item.key}
                   >
-                    <Icon size={23} />
-                    {label}
-                  </button>
+                    <button
+                      type="button"
+                      aria-label={`${item.label} — ${euro(item.price)} (touche ${item.key})`}
+                      aria-pressed={tool === item.id}
+                      onClick={() => selectTool(item.id)}
+                      className={`flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors ${tool === item.id ? "bg-[#e1ebd5] shadow-[inset_0_0_0_1px_#97b17f]" : "hover:bg-[#eff3e8]"}`}
+                    >
+                      <Icon size={27} />
+                    </button>
+                  </BuildHint>
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] text-[#7b8d6c]">
-              {selectedTile?.kind === "entry"
-                ? "Accès des clients au parking"
-                : "Paiement du stationnement à la sortie"}
-            </p>
-          </section>
-        )}
-        {game.ready &&
-          !state.opened &&
-          !opening.ready &&
-          !barrierSelected &&
-          info.spots.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setModal("connections")}
-              className="absolute bottom-4 left-4 flex max-w-[calc(100%_-_96px)] items-center gap-3 rounded-xl border border-[#dfc9a6] bg-[#fffaf0]/95 px-3.5 py-3 text-left shadow-[0_3px_14px_#3d543a0c] sm:left-5"
-              aria-label="Voir les connexions manquantes"
-            >
-              <TriangleAlert size={20} className="shrink-0 text-[#a87c42]" />
-              <span className="min-w-0">
-                <span className="block text-xs font-semibold text-[#735d3d]">
-                  {info.spots.length} places détectées · {info.usable.length}{" "}
-                  reliées
-                </span>
-                <span className="mt-1 block text-[11px] text-[#917449]">
-                  À vérifier : {opening.missing[0]?.label.toLowerCase()}
-                </span>
-              </span>
-              <ArrowRight size={15} className="ml-2 shrink-0 text-[#a87c42]" />
-            </button>
-          )}
-        {game.notice && (
-          <div
-            role="status"
-            className="absolute bottom-4 left-1/2 max-w-[calc(100%_-_32px)] -translate-x-1/2 rounded-xl border border-[#dce5ce] bg-[#fdfef8] px-4 py-3 text-center text-[12px] text-[#657b54] shadow-[0_4px_24px_#4c643515]"
-          >
-            {game.notice}
-          </div>
-        )}
-        {(state.debtTime > 0 || state.unhappyTime > 0) &&
-          state.status !== "lost" && (
+            <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
             <div
-              role="alert"
-              className="absolute top-24 left-1/2 max-w-[calc(100%_-_32px)] -translate-x-1/2 rounded-lg border border-[#d4b393] bg-[#fbf0df] px-4 py-2 text-[12px] text-[#94704b]"
+              className="flex shrink-0 items-center gap-0.5"
+              aria-label="Modifier la sélection"
             >
-              Contrat en danger ·{" "}
-              {Math.ceil(45 - Math.max(state.debtTime, state.unhappyTime))} s
-              pour rétablir la situation
-            </div>
-          )}
-      </main>
-
-      <footer
-        aria-label="Construction et gestion du parking"
-        className="z-10 shrink-0 border-t border-[#cfd9c1] bg-[#fcfdf7] shadow-[0_-3px_20px_#40573608]"
-      >
-        <div className="flex h-16 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden px-3 [scrollbar-color:#bdcdae_transparent] [scrollbar-width:thin] sm:gap-3 sm:px-4">
-          <div
-            className="flex shrink-0 items-center gap-3"
-            aria-label="Indicateurs du parking"
-          >
-            <Metric
-              icon={TreasuryIcon}
-              label="Trésorerie"
-              value={euro(state.balance)}
-              negative={state.balance < 0}
-            />
-            <Metric
-              icon={IncomeIcon}
-              label="Recettes"
-              value={euro(state.income, state.income % 1 ? 1 : 0)}
-            />
-            <button
-              type="button"
-              onClick={() => setModal("connections")}
-              aria-label={`Connexions du parking : ${info.spots.length} places détectées, ${info.usable.length} reliées`}
-              className="rounded-lg py-2 hover:bg-[#eff3e8]"
-            >
-              <Metric
-                icon={CarIcon}
-                label="Stationnement"
-                detail={`${occupied} occupées · ${info.spots.length} places détectées · ${info.usable.length} reliées à la rue et au magasin`}
-                value={
-                  <>
-                    {occupied}
-                    <span className="ml-0.5 text-[11px] font-normal text-[#829570]">
-                      / {info.spots.length}
-                    </span>
-                  </>
-                }
-              />
-            </button>
-            <Metric
-              icon={SatisfactionIcon}
-              label="Satisfaction"
-              value={`${Math.round(state.happiness)} %`}
-              negative={state.happiness < 35}
-            />
-          </div>
-          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
-          <div
-            className="flex shrink-0 items-center gap-0.5"
-            aria-label="Outils de construction"
-          >
-            <IconButton
-              label="Sélectionner / déplacer (V)"
-              icon={MousePointer2}
-              active={tool === "select"}
-              onClick={() => selectTool("select")}
-              className="!size-10"
-            />
-            {TOOLS.map((item) => {
-              const Icon = TOOL_ICONS[item.id]!;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-label={`${item.label} — ${euro(item.price)} (touche ${item.key})`}
-                  aria-pressed={tool === item.id}
-                  onClick={() => selectTool(item.id)}
-                  title={`${item.label} · ${euro(item.price)} · ${item.description} (${item.key})`}
-                  className={`flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors ${tool === item.id ? "bg-[#e1ebd5] shadow-[inset_0_0_0_1px_#97b17f]" : "hover:bg-[#eff3e8]"}`}
-                >
-                  <Icon size={27} />
-                </button>
-              );
-            })}
-          </div>
-          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
-          <div
-            className="flex shrink-0 items-center gap-0.5"
-            aria-label="Modifier la sélection"
-          >
-            <button
-              type="button"
-              aria-label="Pivoter (R)"
-              title={`${selectedTile ? TILE_LABELS[selectedTile.group ? "roundabout" : selectedTile.kind] : (selectedTool?.label ?? "Sélection")} · ${(selectedTile?.rotation ?? rotation) * 90}° · Pivoter de 90° (R)`}
-              onClick={rotate}
-              disabled={!rotatable}
-              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[#5c7c48] hover:bg-[#edf2e4] disabled:cursor-default disabled:opacity-30"
-            >
-              <RotateCw size={21} strokeWidth={1.7} />
-            </button>
-            {selection ? (
+              <button
+                type="button"
+                aria-label="Pivoter (R)"
+                title={`${selectedTile ? TILE_LABELS[selectedTile.group ? "roundabout" : selectedTile.kind] : (selectedTool?.label ?? "Sélection")} · ${(selectedTile?.rotation ?? rotation) * 90}° · Pivoter de 90° (R)`}
+                onClick={rotate}
+                disabled={!rotatable}
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg text-[#5c7c48] hover:bg-[#edf2e4] disabled:cursor-default disabled:opacity-30"
+              >
+                <RotateCw size={21} strokeWidth={1.7} />
+              </button>
+              {selection ? (
+                <IconButton
+                  label="Supprimer la sélection (Suppr)"
+                  hint="Retirez cet aménagement et récupérez 40 % de son coût. La route sous une barrière est conservée."
+                  icon={Trash2}
+                  onClick={remove}
+                  disabled={!!selectedTile?.fixed}
+                  className="!size-9"
+                />
+              ) : (
+                <IconButton
+                  label="Démolir (B)"
+                  hint="Cliquez ou glissez sur les aménagements à retirer. Remboursement : 40 % de leur coût."
+                  icon={Eraser}
+                  active={tool === "erase"}
+                  onClick={() => selectTool("erase")}
+                  className="!size-9"
+                />
+              )}
               <IconButton
-                label="Supprimer la sélection (Suppr)"
-                icon={Trash2}
-                onClick={remove}
-                disabled={!!selectedTile?.fixed}
+                label="Annuler (Ctrl ou ⌘ Z)"
+                hint="Annulez le dernier aménagement, sa modification et son coût."
+                icon={Undo2}
+                onClick={game.undo}
+                disabled={!game.canUndo}
                 className="!size-9"
               />
-            ) : (
-              <IconButton
-                label="Démolir (B)"
-                icon={Eraser}
-                active={tool === "erase"}
-                onClick={() => selectTool("erase")}
-                className="!size-9"
-              />
-            )}
-            <IconButton
-              label="Annuler (Ctrl ou ⌘ Z)"
-              icon={Undo2}
-              onClick={game.undo}
-              disabled={!game.canUndo}
-              className="!size-9"
-            />
-          </div>
-          <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
-          <div
-            className="ml-auto flex shrink-0 items-center gap-1"
-            aria-label="Heure et simulation"
-          >
-            {playback}
-          </div>
-        </div>
-      </footer>
-
-      {modal === "connections" && (
-        <Modal title="Connexions du parking" onClose={() => setModal(null)}>
-          <div className="mb-3 flex items-center gap-3 rounded-xl bg-[#edf2e5] p-3">
-            <ParkingIcon size={30} />
-            <div>
-              <p className="text-sm font-semibold">
-                {info.spots.length} places détectées
-              </p>
-              <p className="mt-0.5 text-xs text-[#798c68]">
-                {info.usable.length} reliées à la rue et au magasin
-              </p>
+            </div>
+            <div className="mx-0.5 h-7 w-px shrink-0 bg-[#dfe6d4]" />
+            <div
+              className="ml-auto flex shrink-0 items-center gap-1"
+              aria-label="Heure et simulation"
+            >
+              {playback}
             </div>
           </div>
-          <ul
-            aria-label="Conditions d’ouverture"
-            className="divide-y divide-[#e5eadc]"
-          >
-            {opening.checks.map((check) => (
-              <li key={check.id} className="flex items-start gap-3 py-3">
-                <span
-                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${check.done ? "bg-[#e4edda] text-[#5e7c49]" : "bg-[#f6ead3] text-[#a77a3d]"}`}
-                >
-                  {check.done ? (
-                    <Check size={13} />
-                  ) : (
-                    <TriangleAlert size={12} />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold">
-                    {check.label}{" "}
-                    <span className="sr-only">
-                      : {check.done ? "OK" : "Manquant"}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-[#7b8c6d]">
-                    {check.detail}
-                  </p>
-                  {!check.done &&
-                    (check.id !== "parking" || !info.spots.length) && (
-                      <button
-                        type="button"
-                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#8e6c37] underline decoration-[#d8c3a0] underline-offset-4"
-                        onClick={() => {
-                          selectTool(
-                            (check.id === "entry" &&
-                              info.placedEntries.length) ||
-                              (check.id === "exit" && info.placedGates.length)
-                              ? "road"
-                              : check.tool,
-                          );
-                          setModal(null);
-                        }}
-                      >
-                        {check.id === "entry" && !info.placedEntries.length
-                          ? "Placer une entrée"
-                          : check.id === "exit" && !info.placedGates.length
-                            ? "Placer une sortie"
-                            : check.id === "parking" && !info.spots.length
-                              ? "Placer une place"
-                              : "Tracer une route"}
-                        <ArrowRight size={12} />
-                      </button>
+        </footer>
+
+        {modal === "connections" && (
+          <Modal title="Connexions du parking" onClose={() => setModal(null)}>
+            <div className="mb-3 flex items-center gap-3 rounded-xl bg-[#edf2e5] p-3">
+              <ParkingIcon size={30} />
+              <div>
+                <p className="text-sm font-semibold">
+                  {info.spots.length} places détectées
+                </p>
+                <p className="mt-0.5 text-xs text-[#798c68]">
+                  {info.usable.length} reliées à la rue et au magasin
+                </p>
+              </div>
+            </div>
+            <ul
+              aria-label="Conditions d’ouverture"
+              className="divide-y divide-[#e5eadc]"
+            >
+              {opening.checks.map((check) => (
+                <li key={check.id} className="flex items-start gap-3 py-3">
+                  <span
+                    className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${check.done ? "bg-[#e4edda] text-[#5e7c49]" : "bg-[#f6ead3] text-[#a77a3d]"}`}
+                  >
+                    {check.done ? (
+                      <Check size={13} />
+                    ) : (
+                      <TriangleAlert size={12} />
                     )}
-                </div>
-              </li>
-            ))}
-          </ul>
-          {info.spotConnections.some((connection) => connection.issue) && (
-            <div className="mt-3 rounded-xl border border-[#e6dcc6] bg-[#fcf8ee] p-3">
-              <h3 className="mb-2 text-xs font-semibold text-[#8b7045]">
-                Places à raccorder
-              </h3>
-              <ul className="max-h-40 space-y-2 overflow-y-auto">
-                {info.spotConnections.map(
-                  (connection, index) =>
-                    connection.issue && (
-                      <li
-                        key={`${connection.point.x},${connection.point.y}`}
-                        className="flex items-start gap-3 text-[11px] leading-relaxed text-[#8c7957]"
-                      >
-                        <span className="flex-1">
-                          <strong className="font-semibold">
-                            Place {index + 1}.
-                          </strong>{" "}
-                          {parkingConnectionMessage(connection)}
-                        </span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold">
+                      {check.label}{" "}
+                      <span className="sr-only">
+                        : {check.done ? "OK" : "Manquant"}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-[#7b8c6d]">
+                      {check.detail}
+                    </p>
+                    {!check.done &&
+                      (check.id !== "parking" || !info.spots.length) && (
                         <button
                           type="button"
-                          className="shrink-0 font-semibold underline underline-offset-4"
+                          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#8e6c37] underline decoration-[#d8c3a0] underline-offset-4"
                           onClick={() => {
-                            selectElement(connection.point);
+                            selectTool(
+                              (check.id === "entry" &&
+                                info.placedEntries.length) ||
+                                (check.id === "exit" && info.placedGates.length)
+                                ? "road"
+                                : check.tool,
+                            );
                             setModal(null);
                           }}
                         >
-                          Repérer
+                          {check.id === "entry" && !info.placedEntries.length
+                            ? "Placer une entrée"
+                            : check.id === "exit" && !info.placedGates.length
+                              ? "Placer une sortie"
+                              : check.id === "parking" && !info.spots.length
+                                ? "Placer une place"
+                                : "Tracer une route"}
+                          <ArrowRight size={12} />
                         </button>
-                      </li>
-                    ),
-                )}
-              </ul>
-            </div>
-          )}
-          {opening.ready ? (
-            <button
-              type="button"
-              className="game-primary-button mt-5 w-full justify-center"
-              disabled={state.status === "lost"}
-              onClick={() => {
-                if (!state.opened && game.open()) previousSpeed.current = 1;
-                setModal(null);
-              }}
-            >
-              <Check size={15} />
-              {state.opened ? "Revenir au parking" : "Ouvrir le parking"}
-            </button>
-          ) : (
-            <p className="mt-4 text-center text-[11px] text-[#9b7a46]">
-              {opening.missing.length} connexion
-              {opening.missing.length > 1 ? "s" : ""}{" "}
-              {state.opened ? "à rétablir" : "à compléter pour ouvrir"}
-            </p>
-          )}
-        </Modal>
-      )}
-
-      {modal === "objectives" && (
-        <Modal title={level.name} onClose={() => setModal(null)}>
-          <div className="mb-5 flex items-center justify-between text-[11px] text-[#80916e]">
-            <span>
-              Contrat 0{state.level + 1} · {level.type}
-            </span>
-            <span>{completedGoals}/4 objectifs</span>
-          </div>
-          {goals.map((goal) => (
-            <div
-              key={goal.label}
-              className="flex items-center gap-3 border-b border-[#e5eadc] py-3.5"
-            >
-              <span
-                className={`flex size-5 items-center justify-center rounded-full border ${goal.done ? "border-[#8fa77c] bg-[#8fa77c] text-white" : "border-[#cfd9c0]"}`}
-              >
-                {goal.done && <Check size={12} />}
-              </span>
-              <span className="flex-1 text-[12px] text-[#687e58]">
-                {goal.label}
-              </span>
-              <span className="text-[11px] text-[#7d916b] tabular-nums">
-                {goal.value} / {goal.target}
-                {goal.unit === "%" ? " %" : ""}
-              </span>
-            </div>
-          ))}
-          <div className="mt-4 flex justify-between rounded-lg bg-[#f0efdf] p-3 text-[12px] text-[#8b825e]">
-            <span className="flex items-center gap-2">
-              <Trophy size={14} />
-              Prime
-            </span>
-            <span>+ {euro(level.reward)}</span>
-          </div>
-          {completedGoals === 4 && !state.completed && (
-            <button
-              type="button"
-              onClick={game.completeContract}
-              className="game-primary-button mt-4 w-full justify-center"
-            >
-              <BadgeCheck size={15} />
-              Valider le contrat
-            </button>
-          )}
-          {state.completed && (
-            <button
-              type="button"
-              onClick={() => setModal("contracts")}
-              className="game-primary-button mt-4 w-full justify-center"
-            >
-              {state.level === 2 ? "Contrats" : "Contrat suivant"}
-              <ArrowRight size={14} />
-            </button>
-          )}
-          <div className="mt-6 flex items-center justify-between">
-            <span className="text-[12px] text-[#657e55]">Tarif par visite</span>
-            <div className="flex items-center gap-2 rounded-lg border border-[#dfe6d3] p-1">
-              <IconButton
-                label="Diminuer le tarif"
-                icon={Minus}
-                disabled={state.price <= 1}
-                onClick={() => game.setPrice(state.price - 0.5)}
-              />
-              <span className="min-w-[72px] text-center text-sm font-semibold">
-                {euro(state.price, 2)}
-              </span>
-              <IconButton
-                label="Augmenter le tarif"
-                icon={Plus}
-                disabled={state.price >= 8}
-                onClick={() => game.setPrice(state.price + 0.5)}
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
-      {modal === "contracts" && (
-        <Modal title="Contrats" onClose={() => setModal(null)} wide>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {LEVELS.map((item, i) => (
-              <div
-                key={item.name}
-                className={`flex flex-col rounded-xl border p-4 ${i === state.level ? "border-[#95ad82] bg-[#f1f5e8]" : "border-[#e0e7d4] bg-[#f8faf2]"}`}
-              >
-                <div className="relative overflow-hidden rounded-lg bg-[#e1e8d3]">
-                  <svg viewBox="0 0 150 90" className="w-full">
-                    <path d="M0 72h150" stroke="#f9f7ec" strokeWidth="15" />
-                    <rect
-                      x="26"
-                      y="16"
-                      width="90"
-                      height="36"
-                      rx="2"
-                      fill={item.roof}
-                    />
-                    <path d="M28 52h86" stroke="#d6b09b" strokeWidth="5" />
-                    <Tree x={134} y={40} small />
-                    <g transform="translate(52 72) rotate(90) scale(.5)">
-                      <CarSprite color="#ddb574" />
-                    </g>
-                  </svg>
-                  {i > state.unlocked && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[#edf2e3]/70">
-                      <LockKeyhole size={21} className="text-[#7e906e]" />
-                    </div>
-                  )}
-                </div>
-                <p className="mt-4 text-[10px] text-[#80926e]">
-                  0{i + 1} · {item.type}
-                </p>
-                <h3 className="mt-2 flex-1 text-[14px] font-semibold leading-5 tracking-tight">
-                  {item.name}
+                      )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {info.spotConnections.some((connection) => connection.issue) && (
+              <div className="mt-3 rounded-xl border border-[#e6dcc6] bg-[#fcf8ee] p-3">
+                <h3 className="mb-2 text-xs font-semibold text-[#8b7045]">
+                  Places à raccorder
                 </h3>
-                <div className="mt-4 space-y-2 text-[11px] text-[#7f906e]">
-                  <div className="flex justify-between">
-                    <span>Budget</span>
-                    <span>{euro(item.budget)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Objectif</span>
-                    <span>{item.capacity} places</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Prime</span>
-                    <span>{euro(item.reward)}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={i > state.unlocked}
-                  onClick={() =>
-                    i === state.level ? setModal(null) : requestContract(i)
-                  }
-                  className="game-primary-button mt-5 justify-center disabled:bg-[#e6ecda] disabled:text-[#859572]"
-                >
-                  {i > state.unlocked ? (
-                    <>
-                      <LockKeyhole size={12} />
-                      Verrouillé
-                    </>
-                  ) : i === state.level ? (
-                    "Reprendre"
-                  ) : (
-                    "Choisir"
+                <ul className="max-h-40 space-y-2 overflow-y-auto">
+                  {info.spotConnections.map(
+                    (connection, index) =>
+                      connection.issue && (
+                        <li
+                          key={`${connection.point.x},${connection.point.y}`}
+                          className="flex items-start gap-3 text-[11px] leading-relaxed text-[#8c7957]"
+                        >
+                          <span className="flex-1">
+                            <strong className="font-semibold">
+                              Place {index + 1}.
+                            </strong>{" "}
+                            {parkingConnectionMessage(connection)}
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 font-semibold underline underline-offset-4"
+                            onClick={() => {
+                              selectElement(connection.point);
+                              setModal(null);
+                            }}
+                          >
+                            Repérer
+                          </button>
+                        </li>
+                      ),
                   )}
-                </button>
+                </ul>
               </div>
-            ))}
-          </div>
-        </Modal>
-      )}
-      {modal === "stats" && (
-        <Modal title="Finances" onClose={() => setModal(null)}>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              ["Recettes", euro(state.income, 2)],
-              ["Dépenses nettes", euro(state.expenses, 2)],
-              ["Clients servis", String(state.served)],
-              ["Clients perdus", String(state.missed)],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-xl border border-[#e1e8d5] bg-[#f6f9ef] p-4"
+            )}
+            {opening.ready ? (
+              <button
+                type="button"
+                className="game-primary-button mt-5 w-full justify-center"
+                disabled={state.status === "lost"}
+                onClick={() => {
+                  if (!state.opened && game.open()) previousSpeed.current = 1;
+                  setModal(null);
+                }}
               >
-                <p className="text-[11px] text-[#7f936b]">{label}</p>
-                <p className="mt-2 text-xl font-semibold tracking-tight text-[#536f47]">
-                  {value}
-                </p>
+                <Check size={15} />
+                {state.opened ? "Revenir au parking" : "Ouvrir le parking"}
+              </button>
+            ) : (
+              <p className="mt-4 text-center text-[11px] text-[#9b7a46]">
+                {opening.missing.length} connexion
+                {opening.missing.length > 1 ? "s" : ""}{" "}
+                {state.opened ? "à rétablir" : "à compléter pour ouvrir"}
+              </p>
+            )}
+          </Modal>
+        )}
+
+        {modal === "objectives" && (
+          <Modal title={level.name} onClose={() => setModal(null)}>
+            <div className="mb-5 flex items-center justify-between text-[11px] text-[#80916e]">
+              <span>
+                Contrat 0{state.level + 1} · {level.type}
+              </span>
+              <span>{completedGoals}/4 objectifs</span>
+            </div>
+            {goals.map((goal) => (
+              <div
+                key={goal.label}
+                className="flex items-center gap-3 border-b border-[#e5eadc] py-3.5"
+              >
+                <span
+                  className={`flex size-5 items-center justify-center rounded-full border ${goal.done ? "border-[#8fa77c] bg-[#8fa77c] text-white" : "border-[#cfd9c0]"}`}
+                >
+                  {goal.done && <Check size={12} />}
+                </span>
+                <span className="flex-1 text-[12px] text-[#687e58]">
+                  {goal.label}
+                </span>
+                <span className="text-[11px] text-[#7d916b] tabular-nums">
+                  {goal.value} / {goal.target}
+                  {goal.unit === "%" ? " %" : ""}
+                </span>
               </div>
             ))}
-          </div>
-          <div className="mt-5 flex items-center justify-between border-t border-[#dfe6d3] pt-4 text-[12px]">
-            <span>Trésorerie</span>
-            <strong>{euro(state.balance, 2)}</strong>
-          </div>
-        </Modal>
-      )}
-      {modal === "help" && (
-        <Modal title="Comment jouer" onClose={() => setModal(null)}>
-          <ol className="list-inside list-decimal space-y-3 text-[12px] leading-6 text-[#71865e]">
-            <li>Tracez une route depuis la voie publique jusqu’au magasin.</li>
-            <li>Posez une entrée et une barrière de sortie sur vos routes.</li>
-            <li>Ajoutez des places, leur ouverture orientée vers la route.</li>
-            <li>Ajoutez des passages piétons, puis cliquez sur « Ouvrir ».</li>
-          </ol>
-          <p className="mt-5 border-t border-[#e1e8d6] pt-4 text-[12px] leading-6 text-[#7a8d68]">
-            Cliquez sur un élément pour le sélectionner, puis utilisez Pivoter
-            ou Supprimer. Le clic droit sélectionne un élément pendant la
-            construction. Tracer une route remplace les décors.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3 text-[10px] text-[#7a8f66]">
-            {[
-              ["1–0", "Outils"],
-              ["R", "Pivoter"],
-              ["Suppr", "Supprimer"],
-              ["V", "Sélection"],
-              ["G", "Grille"],
-              ["Espace", "Pause"],
-              ["⌘ / Ctrl Z", "Annuler"],
-            ].map(([key, label]) => (
-              <span key={key} className="flex items-center gap-1.5">
-                <kbd className="game-kbd">{key}</kbd>
-                {label}
+            <div className="mt-4 flex justify-between rounded-lg bg-[#f0efdf] p-3 text-[12px] text-[#8b825e]">
+              <span className="flex items-center gap-2">
+                <Trophy size={14} />
+                Prime
               </span>
-            ))}
-          </div>
-          <p className="mt-5 rounded-lg bg-[#f5efdf] p-3 text-[11px] leading-6 text-[#97815d]">
-            Après ouverture, un découvert ou une satisfaction sous 35 % pendant
-            45 secondes de jeu entraîne la perte du contrat.
-          </p>
-        </Modal>
-      )}
-      {modal === "settings" && (
-        <Modal title="Paramètres" onClose={() => setModal(null)}>
-          <SettingRow
-            label="Sons"
-            icon={soundOn ? SoundIcon : MutedIcon}
-            active={soundOn}
-            onClick={toggleSound}
-          />
-          <SettingRow
-            label="Grille"
-            icon={GridIcon}
-            active={gridVisible}
-            onClick={() => setGridVisible((value) => !value)}
-          />
-          <SettingRow
-            label="Réduire les animations"
-            icon={MotionIcon}
-            active={reducedMotion}
-            onClick={() => setReducedMotion((value) => !value)}
-          />
-          <div className="mt-5 flex flex-wrap gap-2">
+              <span>+ {euro(level.reward)}</span>
+            </div>
+            {completedGoals === 4 && !state.completed && (
+              <button
+                type="button"
+                onClick={game.completeContract}
+                className="game-primary-button mt-4 w-full justify-center"
+              >
+                <BadgeCheck size={15} />
+                Valider le contrat
+              </button>
+            )}
+            {state.completed && (
+              <button
+                type="button"
+                onClick={() => setModal("contracts")}
+                className="game-primary-button mt-4 w-full justify-center"
+              >
+                {state.level === 2 ? "Contrats" : "Contrat suivant"}
+                <ArrowRight size={14} />
+              </button>
+            )}
+            <div className="mt-6 flex items-center justify-between">
+              <span className="text-[12px] text-[#657e55]">
+                Tarif par visite
+              </span>
+              <div className="flex items-center gap-2 rounded-lg border border-[#dfe6d3] p-1">
+                <IconButton
+                  label="Diminuer le tarif"
+                  icon={Minus}
+                  disabled={state.price <= 1}
+                  onClick={() => game.setPrice(state.price - 0.5)}
+                />
+                <span className="min-w-[72px] text-center text-sm font-semibold">
+                  {euro(state.price, 2)}
+                </span>
+                <IconButton
+                  label="Augmenter le tarif"
+                  icon={Plus}
+                  disabled={state.price >= 8}
+                  onClick={() => game.setPrice(state.price + 0.5)}
+                />
+              </div>
+            </div>
+          </Modal>
+        )}
+        {modal === "contracts" && (
+          <Modal title="Contrats" onClose={() => setModal(null)} wide>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {LEVELS.map((item, i) => (
+                <div
+                  key={item.name}
+                  className={`flex flex-col rounded-xl border p-4 ${i === state.level ? "border-[#95ad82] bg-[#f1f5e8]" : "border-[#e0e7d4] bg-[#f8faf2]"}`}
+                >
+                  <div className="relative overflow-hidden rounded-lg bg-[#e1e8d3]">
+                    <svg viewBox="0 0 150 90" className="w-full">
+                      <path d="M0 72h150" stroke="#f9f7ec" strokeWidth="15" />
+                      <rect
+                        x="26"
+                        y="16"
+                        width="90"
+                        height="36"
+                        rx="2"
+                        fill={item.roof}
+                      />
+                      <path d="M28 52h86" stroke="#d6b09b" strokeWidth="5" />
+                      <Tree x={134} y={40} small />
+                      <g transform="translate(52 72) rotate(90) scale(.5)">
+                        <CarSprite color="#ddb574" />
+                      </g>
+                    </svg>
+                    {i > state.unlocked && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#edf2e3]/70">
+                        <LockKeyhole size={21} className="text-[#7e906e]" />
+                      </div>
+                    )}
+                  </div>
+                  <p className="mt-4 text-[10px] text-[#80926e]">
+                    0{i + 1} · {item.type}
+                  </p>
+                  <h3 className="mt-2 flex-1 text-[14px] font-semibold leading-5 tracking-tight">
+                    {item.name}
+                  </h3>
+                  <div className="mt-4 space-y-2 text-[11px] text-[#7f906e]">
+                    <div className="flex justify-between">
+                      <span>Budget</span>
+                      <span>{euro(item.budget)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Objectif</span>
+                      <span>{item.capacity} places</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Prime</span>
+                      <span>{euro(item.reward)}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={i > state.unlocked}
+                    onClick={() =>
+                      i === state.level ? setModal(null) : requestContract(i)
+                    }
+                    className="game-primary-button mt-5 justify-center disabled:bg-[#e6ecda] disabled:text-[#859572]"
+                  >
+                    {i > state.unlocked ? (
+                      <>
+                        <LockKeyhole size={12} />
+                        Verrouillé
+                      </>
+                    ) : i === state.level ? (
+                      "Reprendre"
+                    ) : (
+                      "Choisir"
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Modal>
+        )}
+        {modal === "stats" && (
+          <Modal title="Finances" onClose={() => setModal(null)}>
+            <ParkingFinances
+              state={state}
+              upkeep={upkeep}
+              playbackRate={game.playbackRate}
+            />
+          </Modal>
+        )}
+        {modal === "help" && (
+          <Modal title="Comment jouer" onClose={() => setModal(null)}>
+            <ol className="list-inside list-decimal space-y-3 text-[12px] leading-6 text-[#71865e]">
+              <li>
+                Tracez une route depuis la voie publique jusqu’au magasin.
+              </li>
+              <li>
+                Posez une entrée et une barrière de sortie sur vos routes.
+              </li>
+              <li>
+                Ajoutez des places, leur ouverture orientée vers la route.
+              </li>
+              <li>
+                Ajoutez des passages piétons, puis cliquez sur « Ouvrir ».
+              </li>
+            </ol>
+            <p className="mt-5 border-t border-[#e1e8d6] pt-4 text-[12px] leading-6 text-[#7a8d68]">
+              Cliquez sur un élément pour le sélectionner, puis utilisez Pivoter
+              ou Supprimer. Le clic droit sélectionne un élément pendant la
+              construction. Tracer une route remplace les décors.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3 text-[10px] text-[#7a8f66]">
+              {[
+                ["1–0", "Outils"],
+                ["R", "Pivoter"],
+                ["Suppr", "Supprimer"],
+                ["V", "Sélection"],
+                ["G", "Grille"],
+                ["Espace", "Pause"],
+                ["⌘ / Ctrl Z", "Annuler"],
+              ].map(([key, label]) => (
+                <span key={key} className="flex items-center gap-1.5">
+                  <kbd className="game-kbd">{key}</kbd>
+                  {label}
+                </span>
+              ))}
+            </div>
+            <p className="mt-5 rounded-lg bg-[#f5efdf] p-3 text-[11px] leading-6 text-[#97815d]">
+              Après ouverture, un découvert ou une satisfaction sous 35 %
+              pendant 45 secondes de jeu entraîne la perte du contrat.
+            </p>
+          </Modal>
+        )}
+        {modal === "settings" && (
+          <Modal title="Paramètres" onClose={() => setModal(null)}>
+            <SettingRow
+              label="Sons"
+              icon={soundOn ? SoundIcon : MutedIcon}
+              active={soundOn}
+              onClick={toggleSound}
+            />
+            <SettingRow
+              label="Grille"
+              icon={GridIcon}
+              active={gridVisible}
+              onClick={() => setGridVisible((value) => !value)}
+            />
+            <SettingRow
+              label="Réduire les animations"
+              icon={MotionIcon}
+              active={reducedMotion}
+              onClick={() => setReducedMotion((value) => !value)}
+            />
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void game.save();
+                  game.notify("Partie sauvegardée.");
+                }}
+                className="game-secondary-button"
+              >
+                <Save size={14} />
+                Sauvegarder
+              </button>
+              <button
+                type="button"
+                onClick={exportSave}
+                className="game-secondary-button"
+              >
+                <Download size={14} />
+                Exporter
+              </button>
+            </div>
+            {!game.isAuthenticated && (
+              <a
+                href="/sign-in"
+                onClick={() => {
+                  void game.save();
+                }}
+                className="mt-4 inline-flex items-center gap-2 text-[11px] text-[#718d5c]"
+              >
+                Connexion pour la sauvegarde cloud
+                <ArrowRight size={12} />
+              </a>
+            )}
             <button
               type="button"
-              onClick={() => {
-                void game.save();
-                game.notify("Partie sauvegardée.");
-              }}
-              className="game-secondary-button"
+              onClick={() => requestContract(state.level)}
+              className="mt-6 flex items-center gap-2 text-[11px] text-[#a08465]"
             >
-              <Save size={14} />
-              Sauvegarder
+              <RotateCcw size={13} />
+              Recommencer sur un terrain vide
             </button>
-            <button
-              type="button"
-              onClick={exportSave}
-              className="game-secondary-button"
-            >
-              <Download size={14} />
-              Exporter
-            </button>
-          </div>
-          {!game.isAuthenticated && (
-            <a
-              href="/sign-in"
-              onClick={() => {
-                void game.save();
-              }}
-              className="mt-4 inline-flex items-center gap-2 text-[11px] text-[#718d5c]"
-            >
-              Connexion pour la sauvegarde cloud
-              <ArrowRight size={12} />
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={() => requestContract(state.level)}
-            className="mt-6 flex items-center gap-2 text-[11px] text-[#a08465]"
+          </Modal>
+        )}
+        {modal === "restart" && (
+          <Modal
+            title={
+              pendingLevel === state.level
+                ? "Recommencer le contrat ?"
+                : "Changer de contrat ?"
+            }
+            onClose={() => setModal(null)}
           >
-            <RotateCcw size={13} />
-            Recommencer sur un terrain vide
-          </button>
-        </Modal>
-      )}
-      {modal === "restart" && (
-        <Modal
-          title={
-            pendingLevel === state.level
-              ? "Recommencer le contrat ?"
-              : "Changer de contrat ?"
-          }
-          onClose={() => setModal(null)}
-        >
-          <p className="text-[12px] leading-6 text-[#7b8e67]">
-            Le parking actuel sera remplacé par un terrain vide. Les contrats
-            débloqués restent disponibles.
-          </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setModal(null)}
-              className="game-secondary-button"
-            >
-              Annuler
-            </button>
-            <button
-              type="button"
-              onClick={startContract}
-              className="game-primary-button"
-            >
-              Commencer
-              <ArrowRight size={14} />
-            </button>
-          </div>
-        </Modal>
-      )}
-      {state.status === "lost" && !modal && (
-        <Modal title="Contrat perdu" onClose={() => setModal("stats")}>
-          <Flag size={30} className="text-[#a28b68]" />
-          <p className="mt-4 text-[12px] leading-6 text-[#7d8c6b]">
-            {state.lossReason}
-          </p>
-          <p className="mt-2 text-[12px] text-[#8e9d7c]">
-            {state.served} clients servis.
-          </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setModal("stats")}
-              className="game-secondary-button"
-            >
-              Bilan
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                previousSpeed.current = 0;
-                game.startContract(state.level);
-                selectTool("select");
-              }}
-              className="game-primary-button"
-            >
-              <RotateCcw size={14} />
-              Recommencer
-            </button>
-          </div>
-        </Modal>
-      )}
-    </div>
+            <p className="text-[12px] leading-6 text-[#7b8e67]">
+              Le parking actuel sera remplacé par un terrain vide. Les contrats
+              débloqués restent disponibles.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="game-secondary-button"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={startContract}
+                className="game-primary-button"
+              >
+                Commencer
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          </Modal>
+        )}
+        {state.status === "lost" && !modal && (
+          <Modal title="Contrat perdu" onClose={() => setModal("stats")}>
+            <Flag size={30} className="text-[#a28b68]" />
+            <p className="mt-4 text-[12px] leading-6 text-[#7d8c6b]">
+              {state.lossReason}
+            </p>
+            <p className="mt-2 text-[12px] text-[#8e9d7c]">
+              {state.served} clients servis.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setModal("stats")}
+                className="game-secondary-button"
+              >
+                Bilan
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  previousSpeed.current = 0;
+                  game.startContract(state.level);
+                  selectTool("select");
+                }}
+                className="game-primary-button"
+              >
+                <RotateCcw size={14} />
+                Recommencer
+              </button>
+            </div>
+          </Modal>
+        )}
+      </div>
+    </BuildHintProvider>
   );
 }
 
@@ -1314,7 +1452,6 @@ function Metric({
     <div
       role="group"
       aria-label={detail ?? label}
-      title={detail ?? label}
       className="flex shrink-0 items-center gap-1.5"
     >
       <Icon size={24} className="shrink-0" />

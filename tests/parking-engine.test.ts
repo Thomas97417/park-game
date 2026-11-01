@@ -9,6 +9,8 @@ import {
   openingStatus,
   parkingAccess,
   positionOnPath,
+  roadWidth,
+  parkingUpkeep,
   rotatePlaced,
   setBarrierKind,
   step,
@@ -16,12 +18,15 @@ import {
   type ParkingState,
   type Car,
   type Point,
+  type TollPayment,
+  type UpkeepCharge,
 } from "../apps/web/src/game/engine";
 import {
   COLS,
   ROWS,
   parseParkingSave,
 } from "../packages/backend/convex/lib/parkingState";
+import { ROAD_TYPES, type RoadType } from "../apps/web/src/game/catalog";
 
 function place(
   state: ParkingState,
@@ -29,8 +34,9 @@ function place(
   x: number,
   y: number,
   rotation = 0,
+  roadType?: RoadType,
 ) {
-  const result = build(state, tool, { x, y }, rotation);
+  const result = build(state, tool, { x, y }, rotation, roadType);
   expect(result.error).toBeUndefined();
   return result.state;
 }
@@ -413,6 +419,160 @@ describe("traffic lanes and roundabouts", () => {
   });
 });
 
+describe("road types", () => {
+  test.each(Object.keys(ROAD_TYPES) as RoadType[])(
+    "%s construction is paid once, saved and undoable",
+    (roadType) => {
+      const state = createGame();
+      const result = build(state, "road", { x: 14, y: 15 }, 1, roadType);
+      expect(result.error).toBeUndefined();
+      expect(result.state.balance).toBe(
+        state.balance - ROAD_TYPES[roadType].price,
+      );
+      expect(result.undo?.grid).toBe(state.grid);
+      expect(result.state.grid[15]![14]).toMatchObject({
+        kind: "road",
+        roadType,
+        roadDirection: 1,
+      });
+      expect(
+        build(result.state, "road", { x: 14, y: 15 }, 1, roadType).state,
+      ).toBe(result.state);
+      const saved = parseParkingSave(JSON.stringify(result.state))!;
+      expect(saved.grid[15]![14]).toEqual(result.state.grid[15]![14]);
+      expect(place(result.state, "erase", 14, 15).balance).toBe(
+        result.state.balance + Math.round(ROAD_TYPES[roadType].price * 0.4),
+      );
+    },
+  );
+  test("one-way roads permit forward driving and walking in both directions", () => {
+    let state = createGame();
+    for (let x = 4; x <= 10; x++)
+      state = place(state, "road", x, 15, 1, "oneWay");
+    expect(
+      findPath(state.grid, { x: 3, y: 15 }, { x: 10, y: 15 }),
+    ).not.toBeNull();
+    expect(findPath(state.grid, { x: 10, y: 15 }, { x: 3, y: 15 })).toBeNull();
+    expect(
+      findPath(state.grid, { x: 10, y: 15 }, { x: 3, y: 15 }, true),
+    ).not.toBeNull();
+    const rotated = rotatePlaced(rotatePlaced(state, { x: 7, y: 15 }).state, {
+      x: 7,
+      y: 15,
+    }).state;
+    expect(rotated.grid[15]![7]!.roadDirection).toBe(3);
+    expect(rotated.balance).toBe(state.balance);
+    expect(
+      findPath(rotated.grid, { x: 3, y: 15 }, { x: 10, y: 15 }),
+    ).toBeNull();
+  });
+  test("a one-way route can bend and branch onto a normal road without allowing reverse travel", () => {
+    let state = createGame();
+    for (let x = 4; x <= 7; x++)
+      state = place(state, "road", x, 15, x === 7 ? 0 : 1, "oneWay");
+    state = place(state, "road", 7, 14, 0, "oneWay");
+    expect(
+      findPath(state.grid, { x: 4, y: 15 }, { x: 7, y: 14 }),
+    ).not.toBeNull();
+    expect(findPath(state.grid, { x: 7, y: 14 }, { x: 4, y: 15 })).toBeNull();
+    state = place(state, "road", 5, 14);
+    expect(
+      findPath(state.grid, { x: 4, y: 15 }, { x: 5, y: 14 }),
+    ).not.toBeNull();
+  });
+  test("wide road upgrades retain barriers, directions and the underlying road after demolition", () => {
+    let state = place(createGame(), "road", 14, 15, 1, "oneWay");
+    state = place(state, "gate", 14, 15, 0);
+    expect(state.grid[15]![14]).toMatchObject({
+      kind: "gate",
+      rotation: 0,
+      roadType: "oneWay",
+      roadDirection: 1,
+    });
+    const upgrade = build(state, "road", { x: 14, y: 15 }, 1, "wideOneWay");
+    expect(upgrade.state.balance).toBe(state.balance - 25);
+    expect(upgrade.state.grid[15]![14]).toMatchObject({
+      kind: "gate",
+      rotation: 0,
+      roadType: "wideOneWay",
+      roadDirection: 1,
+    });
+    expect(roadWidth(upgrade.state.grid[15]![14])).toBe(40);
+    const removed = place(upgrade.state, "erase", 14, 15);
+    expect(removed.grid[15]![14]).toMatchObject({
+      kind: "road",
+      roadType: "wideOneWay",
+      roadDirection: 1,
+    });
+    expect(
+      parseParkingSave(JSON.stringify(removed))?.grid[15]![14]!.roadType,
+    ).toBe("wideOneWay");
+  });
+  test("two lanes on a wide one-way road are used separately", () => {
+    let state = createGame();
+    for (let x = 14; x <= 16; x++)
+      state = place(state, "road", x, 15, 1, "wideOneWay");
+    const car: Car = {
+      id: 0,
+      color: "#dc9a65",
+      spot: { x: 16, y: 15 },
+      path: [
+        { x: 14, y: 15 },
+        { x: 15, y: 15 },
+        { x: 16, y: 15 },
+      ],
+      progress: 0.5,
+      phase: "arriving",
+      wait: 0,
+      shoppingTime: 20,
+      paid: false,
+      fee: 3,
+    };
+    const first = positionOnPath(car, state.grid),
+      second = positionOnPath({ ...car, id: 1 }, state.grid);
+    expect(first.x).toBe(second.x);
+    expect(first.angle).toBe(second.angle);
+    expect(Math.abs(first.y - second.y) * 32).toBe(20);
+    const next = step(
+      {
+        ...state,
+        opened: true,
+        cars: [car, { ...car, id: 1, progress: 0.9 }],
+        nextCarId: 2,
+      },
+      0.25,
+    );
+    expect(next.cars[0]!.progress).toBeGreaterThan(car.progress);
+    expect(next.cars[1]!.progress).toBeGreaterThan(0.9);
+  });
+  test("a place with no legal return route is detected and cannot open the lot", () => {
+    let state = builtLot(0, 1);
+    state = place(state, "road", 9, 9, 1, "oneWay");
+    const info = infrastructure(state.grid);
+    expect(info.spots).toHaveLength(1);
+    expect(info.spotConnections[0]).toMatchObject({
+      streetConnected: true,
+      storeConnected: true,
+      exitConnected: false,
+      issue: "exit",
+    });
+    expect(info.usable).toHaveLength(0);
+    expect(openingStatus(info).missing.map((check) => check.id)).toContain(
+      "return",
+    );
+    expect(openParking(state)).toBe(state);
+  });
+  test("protected roads and roundabout rings cannot be reprofiled", () => {
+    const state = place(createGame(), "roundabout", 17, 17);
+    expect(build(state, "road", { x: 3, y: 15 }, 1, "wideOneWay").state).toBe(
+      state,
+    );
+    expect(build(state, "road", { x: 16, y: 17 }, 1, "oneWay").state).toBe(
+      state,
+    );
+  });
+});
+
 describe("construction and selection", () => {
   test.each([
     ["entry", "gate", 6],
@@ -611,6 +771,194 @@ describe("construction and selection", () => {
 });
 
 describe("customers and contracts", () => {
+  test("maintenance explains the exact automatic debit and occurs only once per period", () => {
+    const state = { ...builtLot(0, 6), opened: true, upkeepTimer: 29.75 };
+    const quote = parkingUpkeep(state);
+    expect(quote).toMatchObject({
+      base: 8,
+      spaces: 6,
+      parking: 0.9,
+      amount: 8.9,
+      interval: 30,
+      nextIn: 0.25,
+    });
+    const charges: UpkeepCharge[] = [];
+    const paid = step(
+      state,
+      0.25,
+      () => 0.5,
+      undefined,
+      (charge) => charges.push(charge),
+    );
+    expect(paid.balance).toBeCloseTo(state.balance - 8.9, 8);
+    expect(paid.expenses).toBeCloseTo(state.expenses + 8.9, 8);
+    expect(charges).toEqual([quote]);
+    expect(parkingUpkeep(paid).nextIn).toBe(30);
+    const next = step(
+      paid,
+      0.25,
+      () => 0.5,
+      undefined,
+      (charge) => charges.push(charge),
+    );
+    expect(next.balance).toBe(paid.balance);
+    expect(charges).toHaveLength(1);
+  });
+  test.each([
+    [0, 8.45],
+    [1, 13.45],
+    [2, 19.45],
+  ])("contract %i uses its own fixed maintenance fee", (level, amount) => {
+    const state = { ...builtLot(level, 3), opened: true, upkeepTimer: 29.75 };
+    const next = step(state, 0.25);
+    expect(parkingUpkeep(state).amount).toBe(amount);
+    expect(state.balance - next.balance).toBeCloseTo(amount, 8);
+  });
+  test("removing a space lowers the next maintenance bill, while construction remains free of maintenance", () => {
+    let state = builtLot(0, 6);
+    state = place(state, "erase", 10, 10);
+    expect(parkingUpkeep(state)).toMatchObject({ spaces: 5, amount: 8.75 });
+    const charges: UpkeepCharge[] = [];
+    expect(
+      step(
+        state,
+        60,
+        () => 0.5,
+        undefined,
+        (charge) => charges.push(charge),
+      ),
+    ).toBe(state);
+    expect(charges).toHaveLength(0);
+  });
+  test("a toll receipt reports the charged fee and gate even when the car exits in the same tick", () => {
+    let state = createGame();
+    state = place(state, "road", 5, 29);
+    state = place(state, "road", 4, 29);
+    state = place(state, "gate", 4, 29);
+    state = place(state, "parking", 6, 29, 3);
+    const car: Car = {
+      id: 0,
+      color: "#dc9a65",
+      spot: { x: 6, y: 29 },
+      path: [
+        { x: 6, y: 29 },
+        { x: 5, y: 29 },
+        { x: 4, y: 29 },
+        { x: 3, y: 29 },
+        { x: 3, y: 30 },
+        { x: 3, y: 31 },
+      ],
+      progress: 1.8,
+      phase: "leaving",
+      wait: 0,
+      shoppingTime: 20,
+      paid: false,
+      fee: 3.5,
+    };
+    const receipts: TollPayment[] = [];
+    const next = step(
+      { ...state, price: 7, opened: true, cars: [car], nextCarId: 1 },
+      2,
+      () => 0.5,
+      (payment) => receipts.push(payment),
+    );
+    expect(next.cars).toHaveLength(0);
+    expect(next.income).toBe(3.5);
+    expect(next.balance).toBe(state.balance + 3.5);
+    expect(receipts).toEqual([
+      { carId: 0, point: { x: 4, y: 29 }, amount: 3.5 },
+    ]);
+  });
+  test("arrivals and already paid clients never emit extra toll receipts", () => {
+    let state = builtLot(0, 1);
+    state = place(state, "gate", 9, 9);
+    const car: Car = {
+      id: 0,
+      color: "#dc9a65",
+      spot: { x: 10, y: 10 },
+      path: [
+        { x: 10, y: 10 },
+        { x: 10, y: 9 },
+        { x: 9, y: 9 },
+        { x: 8, y: 9 },
+        { x: 7, y: 9 },
+      ],
+      progress: 1.8,
+      phase: "leaving",
+      wait: 0,
+      shoppingTime: 20,
+      paid: false,
+      fee: 3,
+    };
+    const receipts: TollPayment[] = [];
+    state = { ...state, opened: true, cars: [car], nextCarId: 1 };
+    for (let i = 0; i < 4; i++)
+      state = step(
+        state,
+        0.25,
+        () => 0.5,
+        (payment) => receipts.push(payment),
+      );
+    expect(state.income).toBe(3);
+    expect(receipts).toEqual([{ carId: 0, point: { x: 9, y: 9 }, amount: 3 }]);
+    const arrival = {
+      ...car,
+      phase: "arriving" as const,
+      path: [...car.path].reverse(),
+      progress: 0.8,
+    };
+    step(
+      { ...state, cars: [arrival] },
+      0.25,
+      () => 0.5,
+      (payment) => receipts.push(payment),
+    );
+    expect(receipts).toHaveLength(1);
+  });
+  test("simultaneous toll payments keep their individual amounts and positions", () => {
+    let state = builtLot(0, 1);
+    for (let x = 12; x <= 14; x++) state = place(state, "road", x, 15);
+    state = place(state, "gate", 13, 15);
+    const car: Car = {
+      id: 0,
+      color: "#dc9a65",
+      spot: { x: 10, y: 10 },
+      path: [
+        { x: 9, y: 9 },
+        { x: 8, y: 9 },
+        { x: 7, y: 9 },
+      ],
+      progress: 0.8,
+      phase: "leaving",
+      wait: 0,
+      shoppingTime: 20,
+      paid: false,
+      fee: 2.5,
+    };
+    const other: Car = {
+      ...car,
+      id: 1,
+      fee: 4,
+      path: [
+        { x: 14, y: 15 },
+        { x: 13, y: 15 },
+        { x: 12, y: 15 },
+      ],
+    };
+    const receipts: TollPayment[] = [];
+    const next = step(
+      { ...state, opened: true, cars: [car, other], nextCarId: 2 },
+      0.25,
+      () => 0.5,
+      (payment) => receipts.push(payment),
+    );
+    expect(next.income).toBe(6.5);
+    expect(next.served).toBe(2);
+    expect(receipts).toEqual([
+      { carId: 0, point: { x: 8, y: 9 }, amount: 2.5 },
+      { carId: 1, point: { x: 13, y: 15 }, amount: 4 },
+    ]);
+  });
   test("a parking built entirely from an empty site operates and bills at the exit", () => {
     const lot = builtLot();
     expect(infrastructure(lot.grid).usable).toHaveLength(24);

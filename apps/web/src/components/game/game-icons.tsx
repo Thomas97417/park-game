@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { LucideProps } from "lucide-react";
+import type { RoadType } from "@/game/catalog";
 
 export type GameIcon = ComponentType<LucideProps>;
 const ink = "#4b6740";
@@ -41,6 +42,44 @@ export function RoadIcon(props: LucideProps) {
       />
       <path d="M7 3v18M17 3v18" stroke={cream} strokeWidth="2" />
       <path d="M12 4v3m0 4v3m0 4v2" stroke={gold} strokeWidth="1.7" />
+    </Frame>
+  );
+}
+export function RoadTypeIcon({
+  variant = "standard",
+  ...props
+}: LucideProps & { variant?: RoadType }) {
+  const oneWay = variant === "oneWay" || variant === "wideOneWay";
+  const width = variant === "oneWay" ? 12 : variant === "standard" ? 16 : 21;
+  return (
+    <Frame {...props}>
+      <rect
+        x={(24 - width) / 2}
+        y="1"
+        width={width}
+        height="22"
+        rx="3"
+        fill={pale}
+        stroke={ink}
+        strokeWidth="1.2"
+      />
+      {variant !== "oneWay" && (
+        <path
+          d="M12 3v3m0 4v4m0 4v3"
+          stroke={oneWay ? cream : gold}
+          strokeWidth="1.3"
+        />
+      )}
+      {(variant === "oneWay" ? [12] : [7, 17]).map((x, index) => (
+        <path
+          key={x}
+          d="M0 4V-4m-2.5 2.5L0-4l2.5 2.5"
+          transform={`translate(${x} 12) ${!oneWay && index === 0 ? "rotate(180)" : ""}`}
+          fill="none"
+          stroke={ink}
+          strokeWidth="1.3"
+        />
+      ))}
     </Frame>
   );
 }

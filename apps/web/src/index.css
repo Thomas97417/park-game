@@ -258,10 +258,35 @@
   animation: none !important;
 }
 
+@keyframes parking-payment-rise {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-42px);
+    opacity: 0;
+  }
+}
+
+.parking-payment-rise {
+  animation: parking-payment-rise 1500ms ease-out forwards;
+}
+
+.reduce-motion .parking-payment-rise {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .parkside *,
   .game-dialog * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+  .parkside .parking-payment-rise {
+    animation: none;
   }
 }

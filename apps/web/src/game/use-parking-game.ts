@@ -16,12 +16,17 @@ import {
   type BuildUndo,
   type ParkingState,
   type Point,
+  type TollPayment,
+  type UpkeepCharge,
 } from "./engine";
-import { STORAGE_KEY, type Tool } from "./catalog";
+import { STORAGE_KEY, type Tool, type RoadType } from "./catalog";
 
 export function useParkingGame() {
   const [state, setState] = useState<ParkingState>(() => createGame());
   const [speed, setSpeed] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [payments, setPayments] = useState<TollPayment[]>([]);
+  const [upkeepNotice, setUpkeepNotice] = useState<UpkeepCharge | null>(null);
   const [ready, setReady] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"local" | "cloud" | "error">(
     "local",
@@ -63,6 +68,9 @@ export function useParkingGame() {
         const saved = parseParkingSave(raw);
         if (saved) {
           update(saved);
+          setPayments([]);
+          setUpkeepNotice(null);
+          setPlaybackRate(1);
           initialSavedAt.current = saved.savedAt;
           setSpeed(saved.opened ? 1 : 0);
           setLastSaved(saved.savedAt);
@@ -93,6 +101,9 @@ export function useParkingGame() {
       !hasLocalEdits.current
     ) {
       update(saved);
+      setPayments([]);
+      setUpkeepNotice(null);
+      setPlaybackRate(1);
       setSpeed(saved.opened ? 1 : 0);
       history.current = [];
       setCanUndo(false);
@@ -127,11 +138,42 @@ export function useParkingGame() {
   useEffect(() => {
     if (!ready) return;
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible" && speed > 0)
-        update((current) => step(current, 0.25 * speed));
+      if (document.visibilityState === "visible" && speed > 0) {
+        const receipts: TollPayment[] = [];
+        let maintenance: UpkeepCharge | undefined;
+        update((current) =>
+          step(
+            current,
+            0.25 * speed,
+            Math.random,
+            (payment) => receipts.push(payment),
+            (charge) => (maintenance = charge),
+          ),
+        );
+        if (receipts.length)
+          setPayments((current) => [...current, ...receipts].slice(-12));
+        if (maintenance) setUpkeepNotice(maintenance);
+      }
     }, 250);
     return () => clearInterval(timer);
   }, [ready, speed, update]);
+
+  useEffect(() => {
+    if (!upkeepNotice) return;
+    const timer = window.setTimeout(() => setUpkeepNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [upkeepNotice]);
+
+  const dismissPayment = useCallback((carId: number) => {
+    setPayments((current) =>
+      current.filter((payment) => payment.carId !== carId),
+    );
+  }, []);
+  const cycleSpeed = useCallback(() => {
+    const next = (playbackRate % 3) + 1;
+    setPlaybackRate(next);
+    setSpeed((current) => (current > 0 ? next : 0));
+  }, [playbackRate]);
 
   useEffect(() => {
     if (!ready) return;
@@ -168,8 +210,8 @@ export function useParkingGame() {
   );
 
   const place = useCallback(
-    (tool: Tool, point: Point, rotation: number) =>
-      apply(build(stateRef.current, tool, point, rotation)),
+    (tool: Tool, point: Point, rotation: number, roadType?: RoadType) =>
+      apply(build(stateRef.current, tool, point, rotation, roadType)),
     [apply],
   );
   const rotate = useCallback(
@@ -218,6 +260,9 @@ export function useParkingGame() {
       history.current = [];
       setCanUndo(false);
       setSpeed(0);
+      setPlaybackRate(1);
+      setPayments([]);
+      setUpkeepNotice(null);
       void save();
     },
     [notify, save, update],
@@ -249,6 +294,11 @@ export function useParkingGame() {
     stateRef,
     speed,
     setSpeed,
+    playbackRate,
+    cycleSpeed,
+    payments,
+    dismissPayment,
+    upkeepNotice,
     ready,
     notice,
     notify,

@@ -1,4 +1,53 @@
-import type { TileKind } from "@my-better-t-app/backend/convex/lib/parkingState";
+import type {
+  TileKind,
+  RoadType,
+} from "@my-better-t-app/backend/convex/lib/parkingState";
+export type { RoadType };
+
+export const ROAD_TYPES: Record<
+  RoadType,
+  {
+    label: string;
+    description: string;
+    price: number;
+    width: number;
+    oneWay: boolean;
+    lanes: number;
+  }
+> = {
+  standard: {
+    label: "Double sens",
+    description: "2 voies",
+    price: 35,
+    width: 32,
+    oneWay: false,
+    lanes: 2,
+  },
+  oneWay: {
+    label: "Sens unique",
+    description: "1 voie",
+    price: 25,
+    width: 24,
+    oneWay: true,
+    lanes: 1,
+  },
+  wide: {
+    label: "Double sens large",
+    description: "2 voies larges",
+    price: 60,
+    width: 48,
+    oneWay: false,
+    lanes: 2,
+  },
+  wideOneWay: {
+    label: "Sens unique large",
+    description: "2 voies dans le même sens",
+    price: 50,
+    width: 40,
+    oneWay: true,
+    lanes: 2,
+  },
+};
 
 export type Tool =
   | "select"
