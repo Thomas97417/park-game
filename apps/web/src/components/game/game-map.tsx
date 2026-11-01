@@ -373,20 +373,6 @@ function Shop({ level, grid }: { level: number; grid: Tile[][] }) {
           />
         </g>
       ))}
-      <rect x="126" y="55" width="133" height="40" rx="3" fill="#6a826a" />
-      <text
-        x="192"
-        y="73"
-        textAnchor="middle"
-        fontSize="12"
-        fontWeight="700"
-        letterSpacing="2.2"
-        fill="#fbf8e9"
-        fontFamily="sans-serif"
-      >
-        {info.shop}
-      </text>
-
       <rect x="8" y="147" width="400" height="15" fill="#e9e7d2" />
       {Array.from({ length: 20 }, (_, i) => (
         <path key={i} d={`M${8 + i * 20} 146h10l2 18h-12Z`} fill="#be9982" />
@@ -495,7 +481,7 @@ function MapTile({
         <Tree x={0} y={0} small />
         <path
           d="M-36-14q-5 13 0 22m-3-3 3 3 3-3M36 14q5-13 0-22m3 3-3-3-3 3"
-          stroke="#bac5aa"
+          stroke="#98ab80"
           fill="none"
           strokeWidth="1.5"
         />
@@ -608,7 +594,22 @@ export function GameMap({
   const visited = useRef(new Set<string>());
   const lastPaint = useRef<Point | null>(null);
   const dragStart = useRef<{ x: number; y: number; pan: Point } | null>(null);
+  const carAngles = useRef(new Map<number, number>());
   const { grid } = state;
+  const carPoses = state.cars.map((car) => {
+    const position = positionOnPath(car, grid);
+    const heading =
+      car.phase === "shopping"
+        ? grid[car.spot.y]![car.spot.x]!.rotation * 90
+        : position.angle;
+    const previous = carAngles.current.get(car.id) ?? heading;
+    const angle =
+      previous + ((((heading - previous + 540) % 360) + 360) % 360) - 180;
+    return { car, ...position, angle };
+  });
+  carAngles.current = new Map(
+    carPoses.map(({ car, angle }) => [car.id, angle]),
+  );
   const spotConnections = new Map(
     connections.spotConnections.map((connection) => [
       `${connection.point.x},${connection.point.y}`,
@@ -1026,21 +1027,16 @@ export function GameMap({
         ),
       )}
       <g pointerEvents="none">
-        {state.cars.map((car) => {
-          const p = positionOnPath(car);
-          const parked = car.phase === "shopping";
-          const angle = parked
-            ? grid[car.spot.y]![car.spot.x]!.rotation * 90
-            : p.angle;
+        {carPoses.map(({ car, x, y, angle }) => {
           return (
             <g
               key={car.id}
               style={{
-                transform: `translate(${cx(p.x) + (parked ? 0 : Math.cos((p.angle * Math.PI) / 180) * 4)}px, ${cy(p.y) + (parked ? 0 : Math.sin((p.angle * Math.PI) / 180) * 4)}px) rotate(${angle}deg)`,
+                transform: `translate(${cx(x)}px, ${cy(y)}px) rotate(${angle}deg)`,
                 transition: "transform 240ms linear",
               }}
             >
-              <CarSprite color={car.color} />
+              <CarSprite color={car.color} small />
             </g>
           );
         })}

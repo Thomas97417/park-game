@@ -41,6 +41,41 @@ export function tilesOf(grid: Tile[][], kind: Tile["kind"]): Point[] {
   );
 }
 
+const ROUNDABOUT_RING = [
+  { x: 0, y: -1 },
+  { x: -1, y: -1 },
+  { x: -1, y: 0 },
+  { x: -1, y: 1 },
+  { x: 0, y: 1 },
+  { x: 1, y: 1 },
+  { x: 1, y: 0 },
+  { x: 1, y: -1 },
+];
+
+/** Screen coordinates: north → west → south → east is counterclockwise. */
+export function canDriveBetween(
+  grid: Tile[][],
+  from: Point,
+  to: Point,
+): boolean {
+  if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) !== 1) return false;
+  const group = grid[from.y]?.[from.x]?.group;
+  if (!group || grid[to.y]?.[to.x]?.group !== group) return true;
+  for (let y = from.y - 1; y <= from.y + 1; y++) {
+    for (let x = from.x - 1; x <= from.x + 1; x++) {
+      const center = grid[y]?.[x];
+      if (center?.kind !== "roundabout" || center.group !== group) continue;
+      const index = ROUNDABOUT_RING.findIndex(
+        (p) => p.x === from.x - x && p.y === from.y - y,
+      );
+      if (index < 0) return false;
+      const next = ROUNDABOUT_RING[(index + 1) % ROUNDABOUT_RING.length]!;
+      return to.x === x + next.x && to.y === y + next.y;
+    }
+  }
+  return true;
+}
+
 /** Breadth-first routing respects road connections and the opening of each bay. */
 export function findPath(
   grid: Tile[][],
@@ -66,6 +101,14 @@ export function findPath(
       const tile = grid[next.y]![next.x]!;
       if (previous.has(key(next))) continue;
       if (pedestrian ? !walkable(tile) : !isRoad(tile) && !same(next, end))
+        continue;
+      if (!pedestrian && !canDriveBetween(grid, current, next)) continue;
+      const currentTile = grid[current.y]![current.x]!;
+      if (
+        !pedestrian &&
+        currentTile.kind === "parking" &&
+        !same(parkingAccess(current, currentTile.rotation), next)
+      )
         continue;
       if (
         !pedestrian &&
@@ -111,6 +154,7 @@ function reachableTiles(
   grid: Tile[][],
   start: Point,
   accepts: (tile?: Tile) => boolean,
+  canStep?: (from: Point, to: Point) => boolean,
 ): Set<string> {
   const visited = new Set<string>();
   if (!accepts(grid[start.y]?.[start.x])) return visited;
@@ -118,7 +162,11 @@ function reachableTiles(
   visited.add(key(start));
   for (let i = 0; i < queue.length; i++) {
     for (const next of neighbors(queue[i]!)) {
-      if (!visited.has(key(next)) && accepts(grid[next.y]![next.x])) {
+      if (
+        !visited.has(key(next)) &&
+        accepts(grid[next.y]![next.x]) &&
+        (!canStep || canStep(queue[i]!, next))
+      ) {
         visited.add(key(next));
         queue.push(next);
       }
@@ -152,8 +200,12 @@ export function parkingConnectionMessage(connection: ParkingConnection) {
 }
 
 export function infrastructure(grid: Tile[][]) {
-  const reachable = reachableTiles(grid, PUBLIC_START, isRoad);
-  const exits = reachableTiles(grid, PUBLIC_END, isRoad);
+  const reachable = reachableTiles(grid, PUBLIC_START, isRoad, (from, to) =>
+    canDriveBetween(grid, from, to),
+  );
+  const exits = reachableTiles(grid, PUBLIC_END, isRoad, (from, to) =>
+    canDriveBetween(grid, to, from),
+  );
   const pedestrians = reachableTiles(grid, storeDoor(grid), walkable);
   const placedEntries = tilesOf(grid, "entry");
   const placedGates = tilesOf(grid, "gate");
@@ -546,16 +598,50 @@ export function setBarrierKind(
   };
 }
 
-export function positionOnPath(car: Car): {
+function lanePoint(grid: Tile[][], path: Point[], index: number): Point {
+  const point = path[index]!;
+  const tile = grid[point.y]?.[point.x];
+  if (!isRoad(tile)) return point;
+  const before = path[index - 1] ?? point;
+  const after = path[index + 1] ?? point;
+  const incoming = same(before, point)
+    ? { x: after.x - point.x, y: after.y - point.y }
+    : { x: point.x - before.x, y: point.y - before.y };
+  const outgoing = same(after, point)
+    ? incoming
+    : { x: after.x - point.x, y: after.y - point.y };
+  const dot = incoming.x * outgoing.x + incoming.y * outgoing.y;
+  const offset = (tile!.fixed ? 12 : 8) / CELL;
+  // Intersect the right-hand lane on both sides of a corner, keeping positions continuous.
+  const normal =
+    dot === -1
+      ? { x: -outgoing.y, y: outgoing.x }
+      : {
+          x: -(incoming.y + outgoing.y) / (1 + dot),
+          y: (incoming.x + outgoing.x) / (1 + dot),
+        };
+  return { x: point.x + normal.x * offset, y: point.y + normal.y * offset };
+}
+
+export function positionOnPath(
+  car: Car,
+  grid?: Tile[][],
+): {
   x: number;
   y: number;
   angle: number;
 } {
   const index = Math.min(Math.floor(car.progress), car.path.length - 1);
-  const a = car.path[index] ?? car.spot;
-  const b = car.path[index + 1] ?? a;
+  const a = grid
+    ? lanePoint(grid, car.path, index)
+    : (car.path[index] ?? car.spot);
+  const b = grid
+    ? lanePoint(grid, car.path, Math.min(index + 1, car.path.length - 1))
+    : (car.path[index + 1] ?? a);
   const progress = car.progress - index;
-  const previous = car.path[Math.max(0, index - 1)] ?? a;
+  const previous = grid
+    ? lanePoint(grid, car.path, Math.max(0, index - 1))
+    : (car.path[Math.max(0, index - 1)] ?? a);
   const direction = same(a, b)
     ? { x: a.x - previous.x, y: a.y - previous.y }
     : { x: b.x - a.x, y: b.y - a.y };
@@ -563,6 +649,41 @@ export function positionOnPath(car: Car): {
     x: a.x + (b.x - a.x) * progress,
     y: a.y + (b.y - a.y) * progress,
     angle: (Math.atan2(direction.y, direction.x) * 180) / Math.PI + 90,
+  };
+}
+
+/** Preserve an in-progress segment while replacing old routes that used a roundabout backwards. */
+function repairCarRoute(grid: Tile[][], car: Car): Car {
+  if (car.phase === "shopping") return { ...car };
+  const anchorIndex = Math.ceil(car.progress);
+  if (
+    !car.path
+      .slice(anchorIndex, -1)
+      .some((p, i) => !canDriveBetween(grid, p, car.path[anchorIndex + i + 1]!))
+  )
+    return { ...car };
+  const anchor = car.path[anchorIndex]!;
+  const remaining = car.path.slice(anchorIndex);
+  const checkpoint = remaining.find(
+    (p) =>
+      grid[p.y]?.[p.x]?.kind === (car.phase === "arriving" ? "entry" : "gate"),
+  );
+  const end = car.path.at(-1)!;
+  const targets =
+    checkpoint && (car.phase === "arriving" || !car.paid)
+      ? [checkpoint, end]
+      : [end];
+  const route = [anchor];
+  for (const target of targets) {
+    const leg = findPath(grid, route.at(-1)!, target);
+    if (!leg) return { ...car };
+    route.push(...leg.slice(1));
+  }
+  const prefixStart = Math.max(0, anchorIndex - 2);
+  return {
+    ...car,
+    path: [...car.path.slice(prefixStart, anchorIndex), ...route],
+    progress: car.progress - prefixStart,
   };
 }
 
@@ -590,10 +711,10 @@ export function step(
   const level = LEVELS[state.level];
   let { balance, income, expenses, served, missed, happiness, nextCarId } =
     state;
-  let cars = state.cars.map((car) => ({ ...car }));
+  let cars = state.cars.map((car) => repairCarRoute(state.grid, car));
   const positions = cars
     .filter((car) => car.phase !== "shopping")
-    .map((car) => ({ id: car.id, ...positionOnPath(car) }));
+    .map((car) => ({ id: car.id, ...positionOnPath(car, state.grid) }));
 
   cars = cars.filter((car) => {
     if (car.phase === "shopping") {
@@ -617,22 +738,33 @@ export function step(
       car.progress + dt * (2.2 + Math.min(info.roundabouts, 3) * 0.15),
       car.path.length - 1,
     );
-    const next = positionOnPath({ ...car, progress: nextProgress });
+    const next = positionOnPath({ ...car, progress: nextProgress }, state.grid);
+    const current = positionOnPath(car, state.grid);
     const nextCell =
       car.path[Math.min(Math.ceil(nextProgress), car.path.length - 1)]!;
     const blockedRoad =
       !isRoad(state.grid[nextCell.y]![nextCell.x]) &&
       state.grid[nextCell.y]![nextCell.x]!.kind !== "parking";
-    // Each road has two visual lanes. Only cars in the same direction queue.
+    const againstTraffic = car.path
+      .slice(Math.ceil(car.progress), Math.ceil(nextProgress))
+      .some(
+        (p, i) =>
+          !canDriveBetween(
+            state.grid,
+            p,
+            car.path[Math.ceil(car.progress) + i + 1]!,
+          ),
+      );
+    // Queue against the same positions that are rendered in each lane.
     const blockedCar = positions.some(
       (p) =>
         p.id !== car.id &&
         Math.cos(((p.angle - next.angle) * Math.PI) / 180) > 0.5 &&
         Math.hypot(p.x - next.x, p.y - next.y) < 0.72 &&
-        Math.hypot(p.x - positionOnPath(car).x, p.y - positionOnPath(car).y) >
+        Math.hypot(p.x - current.x, p.y - current.y) >
           Math.hypot(p.x - next.x, p.y - next.y),
     );
-    if (blockedRoad || blockedCar) {
+    if (blockedRoad || blockedCar || againstTraffic) {
       car.wait += dt;
       if (car.wait > 35) {
         missed++;

@@ -8,11 +8,14 @@ import {
   openParking,
   openingStatus,
   parkingAccess,
+  positionOnPath,
   rotatePlaced,
   setBarrierKind,
   step,
   storeDoor,
   type ParkingState,
+  type Car,
+  type Point,
 } from "../apps/web/src/game/engine";
 import {
   COLS,
@@ -192,6 +195,221 @@ describe("opening diagnostics", () => {
     expect(info.usable).toHaveLength(1);
     expect(openingStatus(info).ready).toBe(true);
     expect(openParking(state).opened).toBe(true);
+  });
+});
+
+describe("traffic lanes and roundabouts", () => {
+  function carOn(path: Point[], progress = 0.5): Car {
+    return {
+      id: 0,
+      color: "#dc9a65",
+      spot: path.at(-1)!,
+      path,
+      progress,
+      phase: "arriving",
+      wait: 0,
+      shoppingTime: 20,
+      paid: false,
+      fee: 3,
+    };
+  }
+  function junction() {
+    let state = place(createGame(), "roundabout", 17, 17);
+    for (const p of [
+      { x: 17, y: 15 },
+      { x: 19, y: 17 },
+      { x: 17, y: 19 },
+      { x: 15, y: 17 },
+    ])
+      state = place(state, "road", p.x, p.y);
+    return state;
+  }
+  test("opposing cars use separate right-hand lanes, including the wider public street", () => {
+    let state = createGame();
+    for (let x = 10; x <= 12; x++) state = place(state, "road", x, 15);
+    const east = positionOnPath(
+      carOn([
+        { x: 10, y: 15 },
+        { x: 11, y: 15 },
+      ]),
+      state.grid,
+    );
+    const west = positionOnPath(
+      carOn([
+        { x: 11, y: 15 },
+        { x: 10, y: 15 },
+      ]),
+      state.grid,
+    );
+    expect(east).toMatchObject({ x: 10.5, y: 15.25, angle: 90 });
+    expect(west).toMatchObject({ x: 10.5, y: 14.75, angle: 270 });
+    const south = positionOnPath(
+      carOn([
+        { x: 3, y: 15 },
+        { x: 3, y: 16 },
+      ]),
+      state.grid,
+    );
+    const north = positionOnPath(
+      carOn([
+        { x: 3, y: 16 },
+        { x: 3, y: 15 },
+      ]),
+      state.grid,
+    );
+    expect(south).toMatchObject({ x: 2.625, y: 15.5, angle: 180 });
+    expect(north).toMatchObject({ x: 3.375, y: 15.5, angle: 0 });
+  });
+  test("cars keep continuous lane positions through turns and finish in the center of their bay", () => {
+    let state = createGame();
+    for (const p of [
+      { x: 10, y: 16 },
+      { x: 11, y: 16 },
+      { x: 11, y: 15 },
+    ])
+      state = place(state, "road", p.x, p.y);
+    state = place(state, "parking", 11, 14, 2);
+    const car = carOn([
+      { x: 10, y: 16 },
+      { x: 11, y: 16 },
+      { x: 11, y: 15 },
+      { x: 11, y: 14 },
+    ]);
+    const before = positionOnPath(
+      { ...car, progress: 1 - 0.000001 },
+      state.grid,
+    );
+    const after = positionOnPath(
+      { ...car, progress: 1 + 0.000001 },
+      state.grid,
+    );
+    expect(Math.hypot(before.x - after.x, before.y - after.y)).toBeLessThan(
+      0.00001,
+    );
+    expect(before.y).toBeGreaterThan(16);
+    expect(after.x).toBeGreaterThan(11);
+    expect(positionOnPath({ ...car, progress: 3 }, state.grid)).toMatchObject({
+      x: 11,
+      y: 14,
+    });
+    expect(findPath(state.grid, car.spot, { x: 11, y: 16 })).toEqual([
+      { x: 11, y: 14 },
+      { x: 11, y: 15 },
+      { x: 11, y: 16 },
+    ]);
+  });
+  test("a west-to-north drive takes the counterclockwise arc while pedestrians may take the shorter route", () => {
+    const { grid } = junction();
+    const start = { x: 15, y: 17 },
+      end = { x: 17, y: 15 };
+    expect(findPath(grid, start, end)).toEqual([
+      start,
+      { x: 16, y: 17 },
+      { x: 16, y: 18 },
+      { x: 17, y: 18 },
+      { x: 18, y: 18 },
+      { x: 18, y: 17 },
+      { x: 18, y: 16 },
+      { x: 17, y: 16 },
+      end,
+    ]);
+    expect(findPath(grid, start, end, true)).toHaveLength(5);
+  });
+  test("all entrances and exits follow the same circulation direction without crossing the island", () => {
+    const { grid } = junction();
+    const arms = [
+      { x: 17, y: 15 },
+      { x: 19, y: 17 },
+      { x: 17, y: 19 },
+      { x: 15, y: 17 },
+    ];
+    for (const start of arms)
+      for (const end of arms) {
+        if (start === end) continue;
+        const path = findPath(grid, start, end)!;
+        expect(path).not.toBeNull();
+        expect(path.some((p) => p.x === 17 && p.y === 17)).toBe(false);
+        for (let i = 1; i < path.length; i++) {
+          const a = path[i - 1]!,
+            b = path[i]!;
+          if (grid[a.y]![a.x]!.group && grid[b.y]![b.x]!.group)
+            expect(
+              (a.x - 17) * (b.y - 17) - (a.y - 17) * (b.x - 17),
+            ).toBeLessThan(0);
+        }
+      }
+  });
+  test("an old arrival route is corrected without resetting its position or client", () => {
+    let state = junction();
+    state = place(state, "parking", 17, 14, 2);
+    const old = carOn(
+      [
+        { x: 15, y: 17 },
+        { x: 16, y: 17 },
+        { x: 16, y: 16 },
+        { x: 17, y: 16 },
+        { x: 17, y: 15 },
+        { x: 17, y: 14 },
+      ],
+      0.25,
+    );
+    const next = step({ ...state, opened: true, cars: [old], nextCarId: 1 }, 0);
+    expect(next.cars).toHaveLength(1);
+    expect(next.cars[0]!.id).toBe(old.id);
+    expect(positionOnPath(next.cars[0]!)).toEqual(positionOnPath(old));
+    expect(next.cars[0]!.path).toContainEqual({ x: 16, y: 18 });
+    expect(next.cars[0]!.path).not.toContainEqual({ x: 16, y: 16 });
+    expect(next.balance).toBe(state.balance);
+    expect(parseParkingSave(JSON.stringify(next))).not.toBeNull();
+  });
+  test("repairing an old departure preserves its toll payment and destination", () => {
+    let state = place(createGame(), "roundabout", 10, 14);
+    state = place(state, "road", 8, 14);
+    state = place(state, "parking", 7, 14, 1);
+    for (let x = 4; x <= 10; x++) state = place(state, "road", x, 11);
+    state = place(state, "road", 10, 12);
+    state = place(state, "gate", 10, 12);
+    const car: Car = {
+      ...carOn(
+        [
+          { x: 7, y: 14 },
+          { x: 8, y: 14 },
+          { x: 9, y: 14 },
+          { x: 9, y: 13 },
+          { x: 10, y: 13 },
+          { x: 10, y: 12 },
+          ...findPath(state.grid, { x: 10, y: 11 }, { x: 3, y: ROWS - 1 })!,
+        ],
+        1.4,
+      ),
+      spot: { x: 7, y: 14 },
+      phase: "leaving",
+    };
+    const next = step({ ...state, opened: true, cars: [car], nextCarId: 1 }, 0);
+    expect(next.cars[0]!.paid).toBe(false);
+    expect(next.cars[0]!.path).toContainEqual({ x: 9, y: 15 });
+    expect(next.cars[0]!.path).toContainEqual({ x: 10, y: 12 });
+    const finished = simulate(60, next);
+    expect(finished.served).toBe(1);
+    expect(finished.income).toBe(3);
+    expect(finished.cars).toHaveLength(0);
+  });
+  test("a lot accessed through a roundabout serves and charges clients in both travel directions", () => {
+    let state = place(createGame(), "roundabout", 9, 10);
+    for (let x = 4; x <= 7; x++) state = place(state, "road", x, 10);
+    for (let x = 11; x <= 24; x++) state = place(state, "road", x, 10);
+    state = place(state, "road", 24, 9);
+    state = place(state, "road", 24, 8);
+    state = place(state, "entry", 5, 10);
+    state = place(state, "gate", 12, 10);
+    state = place(state, "crossing", 17, 10);
+    state = place(state, "crossing", 24, 10);
+    for (let x = 13; x <= 18; x++) state = place(state, "parking", x, 11);
+    expect(openingStatus(infrastructure(state.grid)).ready).toBe(true);
+    const finished = simulate(180, openParking(state));
+    expect(finished.served).toBeGreaterThanOrEqual(10);
+    expect(finished.income).toBe(finished.served * 3);
+    expect(finished.status).toBe("playing");
   });
 });
 

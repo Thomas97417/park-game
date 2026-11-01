@@ -1049,15 +1049,6 @@ export function ParkingGame() {
                       rx="2"
                       fill={item.roof}
                     />
-                    <text
-                      x="71"
-                      y="38"
-                      fontSize="7"
-                      fill="#f9f8e9"
-                      textAnchor="middle"
-                    >
-                      {item.shop}
-                    </text>
                     <path d="M28 52h86" stroke="#d6b09b" strokeWidth="5" />
                     <Tree x={134} y={40} small />
                     <g transform="translate(52 72) rotate(90) scale(.5)">
