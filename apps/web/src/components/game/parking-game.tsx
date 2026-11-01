@@ -27,6 +27,7 @@ import {
   Trash2,
   Trophy,
   Undo2,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import {
@@ -60,6 +61,8 @@ import {
   canRotate,
   clockTime,
   infrastructure,
+  openingStatus,
+  parkingConnectionMessage,
   objectives,
   type Point,
 } from "@/game/engine";
@@ -177,6 +180,7 @@ export function ParkingGame() {
     | "stats"
     | "settings"
     | "restart"
+    | "connections"
     | null
   >(null);
   const [pendingLevel, setPendingLevel] = useState(0);
@@ -188,6 +192,7 @@ export function ParkingGame() {
   const previousSpeed = useRef(0);
   const level = LEVELS[state.level];
   const info = infrastructure(state.grid);
+  const opening = openingStatus(info);
   const goals = objectives(state);
   const completedGoals = goals.filter((goal) => goal.done).length;
   const selectedTile = selection
@@ -278,8 +283,11 @@ export function ParkingGame() {
     }
   }, [game.place, selection, tone]);
   const togglePlayback = useCallback(() => {
-    if (!game.stateRef.current.opened) game.open();
-    else game.setSpeed((value) => (value ? 0 : 1));
+    if (!game.stateRef.current.opened) {
+      const current = openingStatus(infrastructure(game.stateRef.current.grid));
+      if (!current.ready) setModal("connections");
+      else game.open();
+    } else game.setSpeed((value) => (value ? 0 : 1));
   }, [game.open, game.setSpeed, game.stateRef]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -389,9 +397,7 @@ export function ParkingGame() {
       <button
         type="button"
         onClick={togglePlayback}
-        disabled={
-          state.status === "lost" || (!state.opened && info.usable.length === 0)
-        }
+        disabled={state.status === "lost" || !game.ready}
         aria-label={
           !state.opened
             ? "Ouvrir le parking"
@@ -401,12 +407,16 @@ export function ParkingGame() {
         }
         title={
           !state.opened
-            ? "Ouvrir : reliez une entrée, une sortie et une place au magasin"
+            ? opening.ready
+              ? "Ouvrir le parking"
+              : `Vérifier les accès : ${opening.missing.map((check) => check.label.toLowerCase()).join(", ")}`
             : "Pause / lecture (Espace)"
         }
-        className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[10px] font-medium disabled:cursor-default disabled:opacity-35 ${state.opened ? "text-[#486846] hover:bg-[#e8eedf]" : "bg-[#486548] text-[#f4f7ec]"}`}
+        className={`flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[10px] font-medium disabled:cursor-default disabled:opacity-35 ${state.opened ? "text-[#486846] hover:bg-[#e8eedf]" : opening.ready ? "bg-[#486548] text-[#f4f7ec]" : "bg-[#f4e6ca] text-[#896039] hover:bg-[#ecd9b7]"}`}
       >
-        {game.speed ? (
+        {!state.opened && !opening.ready ? (
+          <TriangleAlert size={14} />
+        ) : game.speed ? (
           <Pause size={13} fill="currentColor" strokeWidth={0} />
         ) : (
           <Play size={13} fill="currentColor" strokeWidth={0} />
@@ -478,6 +488,7 @@ export function ParkingGame() {
       >
         <GameMap
           state={state}
+          connections={info}
           tool={tool}
           rotation={rotation}
           gridVisible={gridVisible}
@@ -584,6 +595,29 @@ export function ParkingGame() {
             </span>
           </nav>
         </aside>
+        {game.ready &&
+          !state.opened &&
+          !opening.ready &&
+          info.spots.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setModal("connections")}
+              className="absolute bottom-4 left-4 flex max-w-[calc(100%_-_96px)] items-center gap-3 rounded-xl border border-[#dfc9a6] bg-[#fffaf0]/95 px-3.5 py-3 text-left shadow-[0_3px_14px_#3d543a0c] sm:left-5"
+              aria-label="Voir les connexions manquantes"
+            >
+              <TriangleAlert size={20} className="shrink-0 text-[#a87c42]" />
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-[#735d3d]">
+                  {info.spots.length} places détectées · {info.usable.length}{" "}
+                  reliées
+                </span>
+                <span className="mt-1 block text-[11px] text-[#917449]">
+                  À vérifier : {opening.missing[0]?.label.toLowerCase()}
+                </span>
+              </span>
+              <ArrowRight size={15} className="ml-2 shrink-0 text-[#a87c42]" />
+            </button>
+          )}
         {game.notice && (
           <div
             role="status"
@@ -625,18 +659,26 @@ export function ParkingGame() {
               label="Recettes"
               value={euro(state.income, state.income % 1 ? 1 : 0)}
             />
-            <Metric
-              icon={CarIcon}
-              label="Stationnement"
-              value={
-                <>
-                  {occupied}
-                  <span className="ml-0.5 text-[11px] font-normal text-[#829570]">
-                    / {info.usable.length}
-                  </span>
-                </>
-              }
-            />
+            <button
+              type="button"
+              onClick={() => setModal("connections")}
+              aria-label={`Connexions du parking : ${info.spots.length} places détectées, ${info.usable.length} reliées`}
+              className="rounded-lg py-2 hover:bg-[#eff3e8]"
+            >
+              <Metric
+                icon={CarIcon}
+                label="Stationnement"
+                detail={`${occupied} occupées · ${info.spots.length} places détectées · ${info.usable.length} reliées à la rue et au magasin`}
+                value={
+                  <>
+                    {occupied}
+                    <span className="ml-0.5 text-[11px] font-normal text-[#829570]">
+                      / {info.spots.length}
+                    </span>
+                  </>
+                }
+              />
+            </button>
             <Metric
               icon={SatisfactionIcon}
               label="Satisfaction"
@@ -722,6 +764,132 @@ export function ParkingGame() {
           </div>
         </div>
       </footer>
+
+      {modal === "connections" && (
+        <Modal title="Connexions du parking" onClose={() => setModal(null)}>
+          <div className="mb-3 flex items-center gap-3 rounded-xl bg-[#edf2e5] p-3">
+            <ParkingIcon size={30} />
+            <div>
+              <p className="text-sm font-semibold">
+                {info.spots.length} places détectées
+              </p>
+              <p className="mt-0.5 text-xs text-[#798c68]">
+                {info.usable.length} reliées à la rue et au magasin
+              </p>
+            </div>
+          </div>
+          <ul
+            aria-label="Conditions d’ouverture"
+            className="divide-y divide-[#e5eadc]"
+          >
+            {opening.checks.map((check) => (
+              <li key={check.id} className="flex items-start gap-3 py-3">
+                <span
+                  className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ${check.done ? "bg-[#e4edda] text-[#5e7c49]" : "bg-[#f6ead3] text-[#a77a3d]"}`}
+                >
+                  {check.done ? (
+                    <Check size={13} />
+                  ) : (
+                    <TriangleAlert size={12} />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold">
+                    {check.label}{" "}
+                    <span className="sr-only">
+                      : {check.done ? "OK" : "Manquant"}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#7b8c6d]">
+                    {check.detail}
+                  </p>
+                  {!check.done &&
+                    (check.id !== "parking" || !info.spots.length) && (
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#8e6c37] underline decoration-[#d8c3a0] underline-offset-4"
+                        onClick={() => {
+                          selectTool(
+                            (check.id === "entry" &&
+                              info.placedEntries.length) ||
+                              (check.id === "exit" && info.placedGates.length)
+                              ? "road"
+                              : check.tool,
+                          );
+                          setModal(null);
+                        }}
+                      >
+                        {check.id === "entry" && !info.placedEntries.length
+                          ? "Placer une entrée"
+                          : check.id === "exit" && !info.placedGates.length
+                            ? "Placer une sortie"
+                            : check.id === "parking" && !info.spots.length
+                              ? "Placer une place"
+                              : "Tracer une route"}
+                        <ArrowRight size={12} />
+                      </button>
+                    )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {info.spotConnections.some((connection) => connection.issue) && (
+            <div className="mt-3 rounded-xl border border-[#e6dcc6] bg-[#fcf8ee] p-3">
+              <h3 className="mb-2 text-xs font-semibold text-[#8b7045]">
+                Places à raccorder
+              </h3>
+              <ul className="max-h-40 space-y-2 overflow-y-auto">
+                {info.spotConnections.map(
+                  (connection, index) =>
+                    connection.issue && (
+                      <li
+                        key={`${connection.point.x},${connection.point.y}`}
+                        className="flex items-start gap-3 text-[11px] leading-relaxed text-[#8c7957]"
+                      >
+                        <span className="flex-1">
+                          <strong className="font-semibold">
+                            Place {index + 1}.
+                          </strong>{" "}
+                          {parkingConnectionMessage(connection)}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 font-semibold underline underline-offset-4"
+                          onClick={() => {
+                            selectElement(connection.point);
+                            setModal(null);
+                          }}
+                        >
+                          Repérer
+                        </button>
+                      </li>
+                    ),
+                )}
+              </ul>
+            </div>
+          )}
+          {opening.ready ? (
+            <button
+              type="button"
+              className="game-primary-button mt-5 w-full justify-center"
+              disabled={state.status === "lost"}
+              onClick={() => {
+                if (!state.opened && game.open()) previousSpeed.current = 1;
+                setModal(null);
+              }}
+            >
+              <Check size={15} />
+              {state.opened ? "Revenir au parking" : "Ouvrir le parking"}
+            </button>
+          ) : (
+            <p className="mt-4 text-center text-[11px] text-[#9b7a46]">
+              {opening.missing.length} connexion
+              {opening.missing.length > 1 ? "s" : ""}{" "}
+              {state.opened ? "à rétablir" : "à compléter pour ouvrir"}
+            </p>
+          )}
+        </Modal>
+      )}
 
       {modal === "objectives" && (
         <Modal title={level.name} onClose={() => setModal(null)}>
@@ -1080,17 +1248,19 @@ function Metric({
   label,
   value,
   negative = false,
+  detail,
 }: {
   icon: GameIcon;
   label: string;
   value: ReactNode;
   negative?: boolean;
+  detail?: string;
 }) {
   return (
     <div
       role="group"
-      aria-label={label}
-      title={label}
+      aria-label={detail ?? label}
+      title={detail ?? label}
       className="flex shrink-0 items-center gap-1.5"
     >
       <Icon size={24} className="shrink-0" />

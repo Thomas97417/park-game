@@ -13,12 +13,14 @@ import {
   findPath,
   inBounds,
   isRoad,
-  parkingAccess,
+  parkingConnectionMessage,
   positionOnPath,
   type Car,
   type ParkingState,
   type Point,
   type Tile,
+  type ParkingConnection,
+  type infrastructure,
 } from "@/game/engine";
 import { LEVELS, type Tool } from "@/game/catalog";
 
@@ -111,6 +113,14 @@ function ParkingBay({
         stroke="#fbfcf4"
         strokeWidth="2"
       />
+      <path
+        d="m-3-10 3-3 3 3"
+        fill="none"
+        stroke={disconnected ? "#b88749" : "#8da37e"}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <text
         x="0"
         y="3"
@@ -122,7 +132,19 @@ function ParkingBay({
       >
         P
       </text>
-      {disconnected && <circle cx="10" cy="9" r="3" fill="#d59b5e" />}
+      {disconnected && (
+        <rect
+          x="-15"
+          y="-15"
+          width="30"
+          height="30"
+          rx="2"
+          fill="none"
+          stroke="#ca995c"
+          strokeWidth="1.5"
+          strokeDasharray="3 2"
+        />
+      )}
     </g>
   );
 }
@@ -376,11 +398,11 @@ function Pedestrian({ car, grid }: { car: Car; grid: Tile[][] }) {
 function MapTile({
   tile,
   point,
-  grid,
+  connection,
 }: {
   tile: Tile;
   point: Point;
-  grid: Tile[][];
+  connection?: ParkingConnection;
 }) {
   const x = cx(point.x);
   const y = cy(point.y);
@@ -392,10 +414,10 @@ function MapTile({
       </g>
     );
   if (tile.kind === "parking") {
-    const a = parkingAccess(point, tile.rotation);
     return (
       <g transform={`translate(${x} ${y})`}>
-        <ParkingBay tile={tile} disconnected={!isRoad(grid[a.y]?.[a.x])} />
+        {connection && <title>{parkingConnectionMessage(connection)}</title>}
+        <ParkingBay tile={tile} disconnected={!!connection?.issue} />
       </g>
     );
   }
@@ -485,6 +507,7 @@ export function PropSprite({ kind }: { kind: string }) {
 
 export interface GameMapProps {
   state: ParkingState;
+  connections: ReturnType<typeof infrastructure>;
   tool: Tool;
   rotation: number;
   gridVisible: boolean;
@@ -498,6 +521,7 @@ export interface GameMapProps {
 
 export function GameMap({
   state,
+  connections,
   tool,
   rotation,
   gridVisible,
@@ -519,6 +543,12 @@ export function GameMap({
   const lastPaint = useRef<Point | null>(null);
   const dragStart = useRef<{ x: number; y: number; pan: Point } | null>(null);
   const { grid } = state;
+  const spotConnections = new Map(
+    connections.spotConnections.map((connection) => [
+      `${connection.point.x},${connection.point.y}`,
+      connection,
+    ]),
+  );
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -878,7 +908,7 @@ export function GameMap({
               key={`${x}-${y}`}
               tile={tile}
               point={{ x, y }}
-              grid={grid}
+              connection={spotConnections.get(`${x},${y}`)}
             />
           ) : null,
         ),
@@ -904,6 +934,15 @@ export function GameMap({
             </g>
           ) : tile.kind === "gate" || tile.kind === "entry" ? (
             <g key={`${x}-${y}`} transform={`translate(${cx(x)} ${cy(y)})`}>
+              <title>
+                {tile.kind === "entry" ? "Entrée" : "Sortie"} ·{" "}
+                {(tile.kind === "entry"
+                  ? connections.entries
+                  : connections.gates
+                ).some((p) => p.x === x && p.y === y)
+                  ? "reliée à la rue"
+                  : "à relier à la rue publique"}
+              </title>
               <Barrier
                 entry={tile.kind === "entry"}
                 rotation={tile.rotation}

@@ -107,14 +107,18 @@ export function storeDoor(grid: Tile[][]): Point {
   };
 }
 
-function reachableRoads(grid: Tile[][], start: Point): Set<string> {
+function reachableTiles(
+  grid: Tile[][],
+  start: Point,
+  accepts: (tile?: Tile) => boolean,
+): Set<string> {
   const visited = new Set<string>();
-  if (!isRoad(grid[start.y]?.[start.x])) return visited;
+  if (!accepts(grid[start.y]?.[start.x])) return visited;
   const queue = [start];
   visited.add(key(start));
   for (let i = 0; i < queue.length; i++) {
     for (const next of neighbors(queue[i]!)) {
-      if (!visited.has(key(next)) && isRoad(grid[next.y]![next.x])) {
+      if (!visited.has(key(next)) && accepts(grid[next.y]![next.x])) {
         visited.add(key(next));
         queue.push(next);
       }
@@ -123,24 +127,73 @@ function reachableRoads(grid: Tile[][], start: Point): Set<string> {
   return visited;
 }
 
+export interface ParkingConnection {
+  point: Point;
+  access: Point;
+  roadAccess: boolean;
+  streetConnected: boolean;
+  storeConnected: boolean;
+  issue: "orientation" | "road" | "street" | "store" | null;
+}
+
+export function parkingConnectionMessage(connection: ParkingConnection) {
+  switch (connection.issue) {
+    case "orientation":
+      return "Pivotez la place : son ouverture doit donner sur la route.";
+    case "road":
+      return "Tracez une route devant l’ouverture de la place.";
+    case "street":
+      return "Reliez la route de cette place à la rue publique.";
+    case "store":
+      return "Reliez cette place au parvis du magasin par une route ou un passage piéton.";
+    default:
+      return "Place reliée à la rue et au magasin.";
+  }
+}
+
 export function infrastructure(grid: Tile[][]) {
-  const reachable = reachableRoads(grid, PUBLIC_START);
-  const entries = tilesOf(grid, "entry").filter((p) => reachable.has(key(p)));
-  const gates = tilesOf(grid, "gate").filter((p) => reachable.has(key(p)));
+  const reachable = reachableTiles(grid, PUBLIC_START, isRoad);
+  const exits = reachableTiles(grid, PUBLIC_END, isRoad);
+  const pedestrians = reachableTiles(grid, storeDoor(grid), walkable);
+  const placedEntries = tilesOf(grid, "entry");
+  const placedGates = tilesOf(grid, "gate");
+  const entries = placedEntries.filter((p) => reachable.has(key(p)));
+  const gates = placedGates.filter(
+    (p) => reachable.has(key(p)) && exits.has(key(p)),
+  );
   const spots = tilesOf(grid, "parking");
-  const door = storeDoor(grid);
-  const usable = spots.filter((spot) => {
+  const spotConnections: ParkingConnection[] = spots.map((spot) => {
     const access = parkingAccess(spot, grid[spot.y]![spot.x]!.rotation);
-    return (
-      entries.length > 0 &&
-      gates.length > 0 &&
-      reachable.has(key(access)) &&
-      !!findPath(grid, spot, door, true)
-    );
+    const roadAccess = isRoad(grid[access.y]?.[access.x]);
+    const streetConnected = roadAccess && reachable.has(key(access));
+    const storeConnected = pedestrians.has(key(spot));
+    return {
+      point: spot,
+      access,
+      roadAccess,
+      streetConnected,
+      storeConnected,
+      issue: !roadAccess
+        ? neighbors(spot).some((p) => isRoad(grid[p.y]?.[p.x]))
+          ? "orientation"
+          : "road"
+        : !streetConnected
+          ? "street"
+          : !storeConnected
+            ? "store"
+            : null,
+    };
   });
+  // Detect bays independently of entrance/exit equipment. Opening checks both.
+  const usable = spotConnections
+    .filter((connection) => connection.issue === null)
+    .map((connection) => connection.point);
   return {
     spots,
     usable,
+    spotConnections,
+    placedEntries,
+    placedGates,
     entries,
     gates,
     crossings: tilesOf(grid, "crossing").filter((p) => reachable.has(key(p)))
@@ -149,6 +202,66 @@ export function infrastructure(grid: Tile[][]) {
     roundabouts: tilesOf(grid, "roundabout").filter((p) =>
       neighbors(p).some((n) => reachable.has(key(n))),
     ).length,
+  };
+}
+
+/** Shared by the opening guard and its UI, including keyboard activation. */
+export function openingStatus(info: ReturnType<typeof infrastructure>) {
+  const streetSpots = info.spotConnections.filter((p) => p.streetConnected);
+  const checks = [
+    {
+      id: "entry",
+      label: "Entrée reliée à la rue",
+      done: info.entries.length > 0,
+      detail: info.entries.length
+        ? `${info.entries.length} entrée${info.entries.length > 1 ? "s" : ""} reliée${info.entries.length > 1 ? "s" : ""}`
+        : info.placedEntries.length
+          ? "Reliez l’entrée à la rue publique par une route continue."
+          : "Placez une entrée sur une route reliée à la rue. Une barrière de sortie ne sert pas d’entrée.",
+      tool: "entry" as Tool,
+    },
+    {
+      id: "exit",
+      label: "Sortie reliée à la rue",
+      done: info.gates.length > 0,
+      detail: info.gates.length
+        ? `${info.gates.length} sortie${info.gates.length > 1 ? "s" : ""} reliée${info.gates.length > 1 ? "s" : ""}`
+        : info.placedGates.length
+          ? "Reliez la barrière de sortie à la rue publique."
+          : "Placez une barrière de sortie sur une route reliée à la rue.",
+      tool: "gate" as Tool,
+    },
+    {
+      id: "parking",
+      label: "Places accessibles depuis la rue",
+      done: streetSpots.length > 0,
+      detail: streetSpots.length
+        ? `${streetSpots.length} / ${info.spots.length} places accessibles`
+        : !info.spots.length
+          ? "Ajoutez au moins une place de parking, ouverte vers une route."
+          : info.spotConnections.some((p) => p.roadAccess)
+            ? "Reliez la route des places à la rue publique."
+            : info.spotConnections.some((p) => p.issue === "orientation")
+              ? "Pivotez les places pour orienter leur ouverture vers la route."
+              : "Tracez une route devant l’ouverture des places.",
+      tool: (!info.spots.length ? "parking" : "road") as Tool,
+    },
+    {
+      id: "store",
+      label: "Accès piéton au magasin",
+      done: info.usable.length > 0,
+      detail: info.usable.length
+        ? `${info.usable.length} / ${info.spots.length} places reliées au magasin`
+        : !streetSpots.length
+          ? "Une même place doit être accessible depuis la rue et reliée au magasin."
+          : "Prolongez la route des places jusqu’au parvis du magasin. Les passages piétons se posent sur la route.",
+      tool: "road" as Tool,
+    },
+  ];
+  return {
+    checks,
+    missing: checks.filter((check) => !check.done),
+    ready: checks.every((check) => check.done),
   };
 }
 
@@ -254,7 +367,7 @@ export function openParking(state: ParkingState): ParkingState {
   if (
     state.status !== "playing" ||
     state.opened ||
-    infrastructure(state.grid).usable.length === 0
+    !openingStatus(infrastructure(state.grid)).ready
   )
     return state;
   return { ...state, opened: true };

@@ -9,6 +9,8 @@ import {
   step,
   rotatePlaced,
   openParking,
+  infrastructure,
+  openingStatus,
   type BuildResult,
   type BuildUndo,
   type ParkingState,
@@ -177,14 +179,14 @@ export function useParkingGame() {
     const current = stateRef.current;
     const next = openParking(current);
     if (next === current) {
-      notify(
-        "Reliez une entrée, une barrière de sortie et une place au magasin.",
-      );
-      return;
+      const missing = openingStatus(infrastructure(current.grid)).missing;
+      if (missing[0]) notify(missing[0].detail);
+      return false;
     }
     hasLocalEdits.current = true;
     update(next);
     setSpeed(1);
+    return true;
   }, [notify, update]);
 
   const undo = useCallback(() => {

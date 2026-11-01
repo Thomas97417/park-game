@@ -6,6 +6,8 @@ import {
   findPath,
   infrastructure,
   openParking,
+  openingStatus,
+  parkingAccess,
   rotatePlaced,
   step,
   storeDoor,
@@ -75,10 +77,133 @@ describe("empty construction site", () => {
   });
 });
 
+describe("opening diagnostics", () => {
+  test("all placed bays are detected independently of entry and exit equipment", () => {
+    let state = builtLot(0, 6);
+    state = place(state, "erase", 6, 9);
+    state = place(state, "erase", 8, 9);
+    const info = infrastructure(state.grid);
+    expect(info.spots).toHaveLength(6);
+    expect(info.usable).toHaveLength(6);
+    expect(openingStatus(info).missing.map((check) => check.id)).toEqual([
+      "entry",
+      "exit",
+    ]);
+    expect(openParking(state)).toBe(state);
+  });
+  test("two exit barriers do not count as an entrance, and adding an entrance unlocks opening", () => {
+    let state = builtLot(0, 6);
+    state = place(state, "erase", 6, 9);
+    state = place(state, "gate", 6, 9);
+    const info = infrastructure(state.grid);
+    expect(info.spots).toHaveLength(6);
+    expect(info.usable).toHaveLength(6);
+    expect(info.gates).toHaveLength(2);
+    expect(openingStatus(info).missing.map((check) => check.id)).toEqual([
+      "entry",
+    ]);
+    expect(openParking(state)).toBe(state);
+    state = place(state, "entry", 9, 9);
+    expect(openingStatus(infrastructure(state.grid)).ready).toBe(true);
+    expect(simulate(150, openParking(state)).served).toBeGreaterThan(0);
+  });
+  test.each([0, 1, 2, 3])(
+    "driving access matches the bay opening at rotation %i",
+    (rotation) => {
+      let state = place(createGame(), "parking", 20, 15, rotation);
+      const spot = { x: 20, y: 15 };
+      const access = parkingAccess(spot, rotation);
+      state = place(state, "road", access.x, access.y);
+      expect(infrastructure(state.grid).spotConnections[0]?.roadAccess).toBe(
+        true,
+      );
+      expect(findPath(state.grid, access, spot)).toEqual([access, spot]);
+      const rotated = rotatePlaced(state, spot).state;
+      expect(infrastructure(rotated.grid).spotConnections[0]?.issue).toBe(
+        "orientation",
+      );
+      expect(findPath(rotated.grid, access, spot)).toBeNull();
+    },
+  );
+  test("reports wrong orientation, absent road, disconnected road and missing shop access separately", () => {
+    const good = builtLot(0, 1);
+    const wrongWay = rotatePlaced(good, { x: 10, y: 10 }).state;
+    expect(infrastructure(wrongWay.grid).spotConnections[0]?.issue).toBe(
+      "orientation",
+    );
+    const noRoad = place(createGame(), "parking", 10, 10);
+    expect(infrastructure(noRoad.grid).spotConnections[0]?.issue).toBe("road");
+    const island = place(noRoad, "road", 10, 9);
+    expect(infrastructure(island.grid).spotConnections[0]?.issue).toBe(
+      "street",
+    );
+    const noStore = place(good, "erase", 24, 8);
+    expect(infrastructure(noStore.grid).spotConnections[0]).toMatchObject({
+      roadAccess: true,
+      streetConnected: true,
+      storeConnected: false,
+      issue: "store",
+    });
+    expect(
+      openingStatus(infrastructure(noStore.grid)).missing.map(
+        (check) => check.id,
+      ),
+    ).toEqual(["store"]);
+    expect(openParking(noStore)).toBe(noStore);
+  });
+  test("placed but disconnected entry and exit do not satisfy opening checks", () => {
+    let state = builtLot(0, 1);
+    state = place(state, "erase", 6, 9);
+    state = place(state, "erase", 8, 9);
+    state = place(state, "road", 15, 18);
+    state = place(state, "road", 16, 18);
+    state = place(state, "entry", 15, 18);
+    state = place(state, "gate", 16, 18);
+    const info = infrastructure(state.grid);
+    expect(info.placedEntries).toHaveLength(1);
+    expect(info.placedGates).toHaveLength(1);
+    expect(info.entries).toHaveLength(0);
+    expect(info.gates).toHaveLength(0);
+    expect(openingStatus(info).missing.map((check) => check.id)).toEqual([
+      "entry",
+      "exit",
+    ]);
+    expect(openParking(state)).toBe(state);
+  });
+  test("street and shop must connect to the same usable bay", () => {
+    let state = builtLot(0, 1);
+    state = place(state, "erase", 24, 8);
+    state = place(state, "erase", 25, 9);
+    state = place(state, "erase", 26, 9);
+    state = place(state, "road", 26, 8);
+    state = place(state, "parking", 25, 8, 1);
+    const info = infrastructure(state.grid);
+    expect(info.spotConnections.some((p) => p.streetConnected)).toBe(true);
+    expect(info.spotConnections.some((p) => p.storeConnected)).toBe(true);
+    expect(info.usable).toHaveLength(0);
+    expect(openingStatus(info).ready).toBe(false);
+    expect(openParking(state)).toBe(state);
+  });
+  test("one usable bay permits opening even when other bays still need connections", () => {
+    const state = place(builtLot(0, 1), "parking", 14, 14);
+    const info = infrastructure(state.grid);
+    expect(info.spots).toHaveLength(2);
+    expect(info.usable).toHaveLength(1);
+    expect(openingStatus(info).ready).toBe(true);
+    expect(openParking(state).opened).toBe(true);
+  });
+});
+
 describe("construction and selection", () => {
   test("tracing across existing roads preserves equipment and does not charge again", () => {
     const state = builtLot(0, 1);
-    for (const point of [{ x: 3, y: 9 }, { x: 5, y: 9 }, { x: 6, y: 9 }, { x: 8, y: 9 }, { x: 24, y: 9 }]) {
+    for (const point of [
+      { x: 3, y: 9 },
+      { x: 5, y: 9 },
+      { x: 6, y: 9 },
+      { x: 8, y: 9 },
+      { x: 24, y: 9 },
+    ]) {
       const result = build(state, "road", point, 0);
       expect(result.error).toBeUndefined();
       expect(result.state).toBe(state);
