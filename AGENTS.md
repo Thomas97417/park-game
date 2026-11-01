@@ -11,7 +11,7 @@ The GitHub repository and `origin` remote are `https://github.com/Thomas97417/pa
 ```bash
 bun install              # Install dependencies
 bun run dev              # Start all apps (web + Convex backend) via Turborepo
-bun run dev:web          # Start only the web frontend (port 3001)
+bun run dev:web          # Start only the web frontend (port 3002)
 bun run dev:server       # Start only the Convex backend
 bun run dev:setup        # Initialize/configure Convex project (first-time setup)
 bun run build            # Build all applications

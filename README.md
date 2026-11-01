@@ -48,8 +48,8 @@ Depuis le dossier backend :
 
 ```bash
 cd packages/backend
-bunx --bun convex env set SITE_URL http://localhost:3001
-bunx --bun convex env set BETTER_AUTH_URL http://localhost:3001
+bunx --bun convex env set SITE_URL http://localhost:3002
+bunx --bun convex env set BETTER_AUTH_URL http://localhost:3002
 bunx --bun convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
 cd ../..
 ```
@@ -81,7 +81,7 @@ Depuis la racine du dépôt :
 bun run dev
 ```
 
-Cette commande lance le frontend et le backend Convex en mode développement. Ouvrir **[http://localhost:3001](http://localhost:3001)**.
+Cette commande lance le frontend et le backend Convex en mode développement. Ouvrir **[http://localhost:3002](http://localhost:3002)**. Le port est fixe : si `3002` est occupé, Vite s’arrête pour éviter un décalage avec les URL d’authentification.
 
 Pour les démarrages suivants, `bun run dev` suffit si la configuration est déjà en place. Après une modification de `apps/web/.env`, redémarrer le serveur frontend.
 
@@ -119,11 +119,11 @@ Vérifier que `SITE_URL` est définie **sur le déploiement Convex utilisé par 
 ```bash
 cd packages/backend
 bunx --bun convex env get SITE_URL
-bunx --bun convex env set SITE_URL http://localhost:3001
+bunx --bun convex env set SITE_URL http://localhost:3002
 cd ../..
 ```
 
-Rafraîchir ensuite l’application à l’adresse `http://localhost:3001`.
+Rafraîchir ensuite l’application à l’adresse `http://localhost:3002`.
 
 ### « Object is missing the required field from » lors de l’inscription
 

@@ -6,8 +6,12 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [tsconfigPaths(), tailwindcss(), tanstackStart(), viteReact()],
+  optimizeDeps: {
+    include: ["convex/browser"],
+  },
   server: {
-    port: 3001,
+    port: 3002,
+    strictPort: true,
   },
   ssr: {
     noExternal: ["@convex-dev/better-auth"],
