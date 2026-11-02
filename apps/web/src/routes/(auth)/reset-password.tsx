@@ -4,16 +4,16 @@ import ResetPasswordForm from "@/components/reset-password-form";
 export const Route = createFileRoute("/(auth)/reset-password")({
   head: () => ({
     meta: [
-      { title: "Reset Password — Toma Stack" },
+      { title: "Reset Password — Parkside" },
       {
         name: "description",
-        content: "Set a new password for your Toma Stack account.",
+        content: "Set a new password for your Parkside account.",
       },
     ],
   }),
   beforeLoad: async ({ context }) => {
     if (context.isAuthenticated) {
-      throw redirect({ to: "/dashboard" });
+      throw redirect({ to: "/" });
     }
   },
   component: RouteComponent,

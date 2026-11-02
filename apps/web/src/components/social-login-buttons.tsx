@@ -25,7 +25,7 @@ export function GitHubLoginButton() {
     <Button
       type="button"
       variant="outline"
-      onClick={() => authClient.signIn.social({ provider: "github" })}
+      onClick={() => authClient.signIn.social({ provider: "github", callbackURL: "/" })}
     >
       <GitHubIcon className="mr-2 h-4 w-4" />
       GitHub
@@ -38,7 +38,7 @@ export function GoogleLoginButton() {
     <Button
       type="button"
       variant="outline"
-      onClick={() => authClient.signIn.social({ provider: "google" })}
+      onClick={() => authClient.signIn.social({ provider: "google", callbackURL: "/" })}
     >
       <GoogleIcon className="mr-2 h-4 w-4" />
       Google

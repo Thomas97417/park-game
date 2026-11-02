@@ -4,16 +4,16 @@ import SignInForm from "@/components/sign-in-form";
 export const Route = createFileRoute("/(auth)/sign-in")({
   head: () => ({
     meta: [
-      { title: "Sign In — Toma Stack" },
+      { title: "Sign In — Parkside" },
       {
         name: "description",
-        content: "Sign in to your Toma Stack account.",
+        content: "Sign in to your Parkside account.",
       },
     ],
   }),
   beforeLoad: async ({ context }) => {
     if (context.isAuthenticated) {
-      throw redirect({ to: "/dashboard" });
+      throw redirect({ to: "/" });
     }
   },
   component: RouteComponent,
